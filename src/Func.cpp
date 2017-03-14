@@ -162,7 +162,8 @@ void Func::define_extern(const std::string &function_name,
                          const std::vector<ExternFuncArgument> &args,
                          const std::vector<Type> &types,
                          int dimensionality,
-                         NameMangling mangling) {
+                         NameMangling mangling,
+                         bool /* uses_old_buffer_t */) {
     func.define_extern(function_name, args, types, dimensionality, mangling);
 }
 
@@ -1148,6 +1149,7 @@ Stage &Stage::purify(VarOrRVar old_var, VarOrRVar new_var) {
             found = true;
             old_name = dims[i].var;
             dims[i].var = new_name;
+            dims[i].dim_type = Dim::Type::PureVar;
         }
     }
 
