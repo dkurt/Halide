@@ -184,7 +184,7 @@ int main(int argc, char **argv) {
         for (int r1_y = 0; r1_y < 5; r1_y++) {
             for (int r1_x = 0; r1_x < 5; r1_x++) {
                 // Update is only performed if the predicate evaluates to true.
-                if ((c_result_f[r1_y][r1_x] >= 10) && (c_result_f[r1_y][r1_x] != 15)) {
+                if ((c_result_f[r1_y][r1_x] >= 4) && (c_result_f[r1_y][r1_x] <= 7)) {
                     c_result_f[r1_y][r1_x] += 1;
                 }
             }
