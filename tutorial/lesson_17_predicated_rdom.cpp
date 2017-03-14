@@ -158,8 +158,8 @@ int main(int argc, char **argv) {
 
         // This RDom's predicates depend on the initial value of 'f'.
         RDom r1(0, 5, 0, 5, "r1");
-        r1.where(f(r1.x, r1.y) >= 10);
-        r1.where(f(r1.x, r1.y) != 15);
+        r1.where(f(r1.x, r1.y) >= 4);
+        r1.where(f(r1.x, r1.y) <= 7);
         f(r1.x, r1.y) += 1;
         f.compute_root();
 

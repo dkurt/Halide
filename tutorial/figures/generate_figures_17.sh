@@ -24,7 +24,7 @@ cat tmp/trace.bin | ../../bin/HalideTraceViz -s 236 236 -t 1 -d 10000 -h 4 -f ci
 make_gif lesson_17_rdom_circular.gif 4
 
 # Triangular rdom
-cat tmp/trace.bin | ../../bin/HalideTraceViz -s 236 236 -t 1 -d 10000 -h 4 -f triangle 0 32 -1 0 20 2 10 10 1 0 0 1 | avconv -f rawvideo -pix_fmt bgr32 -s 236x236 -i /dev/stdin tmp/frames_%04d.tif
+cat tmp/trace.bin | ../../bin/HalideTraceViz -s 236 236 -t 1 -d 10000 -h 16 -f triangle 0 32 -1 0 20 2 10 10 1 0 0 1 | avconv -f rawvideo -pix_fmt bgr32 -s 236x236 -i /dev/stdin tmp/frames_%04d.tif
 
 make_gif lesson_17_rdom_triangular.gif 1
 
