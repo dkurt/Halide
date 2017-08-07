@@ -1,4 +1,7 @@
 #include "Error.h"
+
+#if 0
+
 #include "LLVM_Headers.h"
 
 using namespace llvm;
@@ -70,3 +73,6 @@ llvm::Function *define_matlab_wrapper(llvm::Module *module,
 
 }  // namespace Internal
 }  // namespace Halide
+
+#endif
+

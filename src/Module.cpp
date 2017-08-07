@@ -8,9 +8,9 @@
 #include "CodeGen_Internal.h"
 #include "Debug.h"
 #include "HexagonOffload.h"
-#include "LLVM_Headers.h"
-#include "LLVM_Output.h"
-#include "LLVM_Runtime_Linker.h"
+//#include "LLVM_Headers.h"
+//#include "LLVM_Output.h"
+//#include "LLVM_Runtime_Linker.h"
 #include "IROperator.h"
 #include "Outputs.h"
 #include "StmtToHtml.h"
@@ -238,7 +238,7 @@ Buffer<uint8_t> Module::compile_to_buffer() const {
     // TODO: This Hexagon specific code should be removed as soon as possible.
     // This may involve adding more general support for post-processing and
     // a way of specifying to use it.
-    if (target().arch == Target::Hexagon) {
+    /*if (target().arch == Target::Hexagon) {
         return compile_module_to_hexagon_shared_object(*this);
     }
     
@@ -259,6 +259,9 @@ Buffer<uint8_t> Module::compile_to_buffer() const {
 
     Buffer<uint8_t> result(object.size(), name());
     memcpy(result.data(), reinterpret_cast<uint8_t*>(&object[0]), object.size());
+    return result;*/
+    assert(0);
+    Buffer<uint8_t> result(1024);
     return result;
 }
 
@@ -312,7 +315,7 @@ void Module::compile(const Outputs &output_files) const {
         return;
     }
 
-    if (!output_files.object_name.empty() || !output_files.assembly_name.empty() ||
+    /*if (!output_files.object_name.empty() || !output_files.assembly_name.empty() ||
         !output_files.bitcode_name.empty() || !output_files.llvm_assembly_name.empty() ||
         !output_files.static_library_name.empty()) {
         llvm::LLVMContext context;
@@ -356,7 +359,7 @@ void Module::compile(const Outputs &output_files) const {
             auto out = make_raw_fd_ostream(output_files.llvm_assembly_name);
             compile_llvm_module_to_llvm_assembly(*llvm_module, *out);
         }
-    }
+    }*/
     if (!output_files.c_header_name.empty()) {
         debug(1) << "Module.compile(): c_header_name " << output_files.c_header_name << "\n";
         std::ofstream file(output_files.c_header_name);
@@ -385,6 +388,7 @@ void Module::compile(const Outputs &output_files) const {
         debug(1) << "Module.compile(): stmt_html_name " << output_files.stmt_html_name << "\n";
         Internal::print_to_html(output_files.stmt_html_name, *this);
     }
+    assert(0);
 }
 
 Outputs compile_standalone_runtime(const Outputs &output_files, Target t) {
@@ -596,7 +600,8 @@ void compile_multitarget(const std::string &fn_name,
 
     if (!output_files.static_library_name.empty()) {
         debug(1) << "compile_multitarget: static_library_name " << output_files.static_library_name << "\n";
-        create_static_library(temp_dir.files(), base_target, output_files.static_library_name);
+        assert(0);
+        //create_static_library(temp_dir.files(), base_target, output_files.static_library_name);
     }
 }
 

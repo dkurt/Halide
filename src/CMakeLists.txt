@@ -1,13 +1,13 @@
 include(CheckCXXCompilerFlag)
 
-add_executable(build_halide_h ../tools/build_halide_h.cpp)
-add_executable(binary2cpp ../tools/binary2cpp.cpp)
+#add_executable(build_halide_h ../tools/build_halide_h.cpp)
+#add_executable(binary2cpp ../tools/binary2cpp.cpp)
 
-if (MSVC)
+#if (MSVC)
   # disable irrelevant warnings
-  target_compile_options(build_halide_h PUBLIC /wd4996)
-  target_compile_options(binary2cpp PUBLIC /wd4996)
-endif()
+#  target_compile_options(build_halide_h PUBLIC /wd4996)
+#  target_compile_options(binary2cpp PUBLIC /wd4996)
+#endif()
 
 if (MSVC)
   # -g produces dwarf debugging info, which is not useful on windows
@@ -198,57 +198,57 @@ function(add_runtime_modules TARGET_RUNTIME_FILES TARGET_RUNTIME_DIR)
   set(INITIAL_MODULES "${INITIAL_MODULES}" PARENT_SCOPE)
 endfunction (add_runtime_modules)
 
-add_runtime_modules("${RUNTIME_CPP}" "${NATIVE_RUNTIME_DIR}")
+#add_runtime_modules("${RUNTIME_CPP}" "${NATIVE_RUNTIME_DIR}")
 
-foreach (i ${RUNTIME_LL} )
-  set(LL "${NATIVE_RUNTIME_DIR}${i}.ll")
-  set(BC "${PROJECT_BINARY_DIR}/${PROJECT_NAME}.build/${NATIVE_INT_DIR}initmod.${i}.bc")
-  set(INITMOD "${INITMOD_PREFIX}${i}.cpp")
-  add_custom_command(OUTPUT "${BC}"
-                     DEPENDS "${LL}"
-                     COMMAND "${LLVM_AS}" "${LL}" -o "${BC}"
-                     COMMENT "${LL} -> ${BC}")
-  add_custom_command(OUTPUT "${INITMOD}"
-                     DEPENDS "${BC}"
-                     COMMAND binary2cpp "halide_internal_initmod_${i}_ll" < "${BC}" > "${INITMOD}"
-                     COMMENT "${BC} -> ${INITMOD}")
-  list(APPEND INITIAL_MODULES "${INITMOD}")
-endforeach()
-foreach (i ${RUNTIME_BC} )
-  set(INITMOD "${INITMOD_PREFIX}ptx_${i}.cpp")
-  add_custom_command(OUTPUT "${INITMOD}"
-                     COMMAND binary2cpp "halide_internal_initmod_ptx_${i}_ll" < "${NATIVE_RUNTIME_DIR}nvidia_libdevice_bitcode/libdevice.${i}.10.bc" > "${INITMOD}"
-                     COMMENT "Building initial module ptx_${i}..."
-                     VERBATIM)
-  list(APPEND INITIAL_MODULES "${INITMOD}")
-endforeach()
+#foreach (i ${RUNTIME_LL} )
+#  set(LL "${NATIVE_RUNTIME_DIR}${i}.ll")
+#  set(BC "${PROJECT_BINARY_DIR}/${PROJECT_NAME}.build/${NATIVE_INT_DIR}initmod.${i}.bc")
+#  set(INITMOD "${INITMOD_PREFIX}${i}.cpp")
+#  add_custom_command(OUTPUT "${BC}"
+#                     DEPENDS "${LL}"
+#                     COMMAND "${LLVM_AS}" "${LL}" -o "${BC}"
+#                     COMMENT "${LL} -> ${BC}")
+#  add_custom_command(OUTPUT "${INITMOD}"
+#                     DEPENDS "${BC}"
+#                     COMMAND binary2cpp "halide_internal_initmod_${i}_ll" < "${BC}" > "${INITMOD}"
+#                     COMMENT "${BC} -> ${INITMOD}")
+#  list(APPEND INITIAL_MODULES "${INITMOD}")
+#endforeach()
+#foreach (i ${RUNTIME_BC} )
+#  set(INITMOD "${INITMOD_PREFIX}ptx_${i}.cpp")
+#  add_custom_command(OUTPUT "${INITMOD}"
+#                     COMMAND binary2cpp "halide_internal_initmod_ptx_${i}_ll" < "${NATIVE_RUNTIME_DIR}nvidia_libdevice_bitcode/libdevice.${i}.10.bc" > "${INITMOD}"
+#                     COMMENT "Building initial module ptx_${i}..."
+#                     VERBATIM)
+#  list(APPEND INITIAL_MODULES "${INITMOD}")
+#endforeach()
 
-add_custom_command(OUTPUT "${INITMOD_PREFIX}inlined_c.cpp"
-  DEPENDS "${NATIVE_RUNTIME_DIR}buffer_t.cpp"
-  COMMAND binary2cpp "halide_internal_initmod_inlined_c" < "${NATIVE_RUNTIME_DIR}buffer_t.cpp" > "${INITMOD_PREFIX}inlined_c.cpp"
-  COMMENT "buffer_t.cpp -> ${INITMOD_PREFIX}inlined_c.cpp")
-list(APPEND INITIAL_MODULES "${INITMOD_PREFIX}inlined_c.cpp")
+#add_custom_command(OUTPUT "${INITMOD_PREFIX}inlined_c.cpp"
+#  DEPENDS "${NATIVE_RUNTIME_DIR}buffer_t.cpp"
+#  COMMAND binary2cpp "halide_internal_initmod_inlined_c" < "${NATIVE_RUNTIME_DIR}buffer_t.cpp" > "${INITMOD_PREFIX}inlined_c.cpp"
+#  COMMENT "buffer_t.cpp -> ${INITMOD_PREFIX}inlined_c.cpp")
+#list(APPEND INITIAL_MODULES "${INITMOD_PREFIX}inlined_c.cpp")
 
 set(RUNTIME_HEADER_FILES
   HalideRuntime.h
-  HalideRuntimeCuda.h
-  HalideRuntimeHexagonHost.h
+#  HalideRuntimeCuda.h
+#  HalideRuntimeHexagonHost.h
   HalideRuntimeOpenCL.h
-  HalideRuntimeMetal.h
-  HalideRuntimeOpenGL.h
-  HalideRuntimeOpenGLCompute.h
-  HalideRuntimeQurt.h
+#  HalideRuntimeMetal.h
+#  HalideRuntimeOpenGL.h
+#  HalideRuntimeOpenGLCompute.h
+#  HalideRuntimeQurt.h
   HalideBuffer.h
 )
 
-foreach (i ${RUNTIME_HEADER_FILES})
-  string(REPLACE "." "_" SYM_NAME "${i}")
-  add_custom_command(OUTPUT "${INITMOD_PREFIX}${SYM_NAME}.cpp"
-    DEPENDS "${NATIVE_RUNTIME_DIR}${i}"
-    COMMAND binary2cpp "halide_internal_runtime_header_${SYM_NAME}" < "${NATIVE_RUNTIME_DIR}${i}" > "${INITMOD_PREFIX}${SYM_NAME}.cpp"
-    COMMENT "${i} -> ${INITMOD_PREFIX}${SYM_NAME}.cpp")
-  list(APPEND INITIAL_MODULES "${INITMOD_PREFIX}${SYM_NAME}.cpp")
-endforeach()
+#foreach (i ${RUNTIME_HEADER_FILES})
+#  string(REPLACE "." "_" SYM_NAME "${i}")
+#  add_custom_command(OUTPUT "${INITMOD_PREFIX}${SYM_NAME}.cpp"
+#    DEPENDS "${NATIVE_RUNTIME_DIR}${i}"
+#    COMMAND binary2cpp "halide_internal_runtime_header_${SYM_NAME}" < "${NATIVE_RUNTIME_DIR}${i}" > "${INITMOD_PREFIX}${SYM_NAME}.cpp"
+#    COMMENT "${i} -> ${INITMOD_PREFIX}${SYM_NAME}.cpp")
+#  list(APPEND INITIAL_MODULES "${INITMOD_PREFIX}${SYM_NAME}.cpp")
+#endforeach()
 
 set(HEADER_FILES
   AddImageChecks.h
@@ -265,21 +265,22 @@ set(HEADER_FILES
   CSE.h
   CanonicalizeGPUVars.h
   Closure.h
-  CodeGen_ARM.h
+  #CodeGen_ARM.h
   CodeGen_C.h
   CodeGen_GPU_Dev.h
-  CodeGen_GPU_Host.h
-  CodeGen_Hexagon.h
-  CodeGen_LLVM.h
-  CodeGen_MIPS.h
+  #CodeGen_GPU_Host.h
+  #CodeGen_Hexagon.h
+  CodeGen_Internal.h
+  #CodeGen_LLVM.h
+  #CodeGen_MIPS.h
   CodeGen_OpenCL_Dev.h
-  CodeGen_Metal_Dev.h
-  CodeGen_OpenGL_Dev.h
-  CodeGen_OpenGLCompute_Dev.h
-  CodeGen_PowerPC.h
-  CodeGen_PTX_Dev.h
-  CodeGen_Posix.h
-  CodeGen_X86.h
+  #CodeGen_Metal_Dev.h
+  #CodeGen_OpenGL_Dev.h
+  #CodeGen_OpenGLCompute_Dev.h
+  #CodeGen_PowerPC.h
+  #CodeGen_PTX_Dev.h
+  #CodeGen_Posix.h
+  #CodeGen_X86.h
   ConciseCasts.h
   CPlusPlusMangle.h
   Debug.h
@@ -305,8 +306,9 @@ set(HEADER_FILES
   FuseGPUThreadLoops.h
   FuzzFloatStores.h
   Generator.h
-  HexagonOffload.h
-  HexagonOptimize.h
+  Halide.h
+  #HexagonOffload.h
+  #HexagonOptimize.h
   IR.h
   IREquality.h
   IRMatch.h
@@ -394,16 +396,18 @@ set(HEADER_FILES
 
 file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/include")
 file(TO_NATIVE_PATH "${CMAKE_BINARY_DIR}/include/" NATIVE_INCLUDE_PATH)
-add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/include/Halide.h"
-  COMMAND build_halide_h ${HEADER_FILES} > "${NATIVE_INCLUDE_PATH}Halide.h"
-  WORKING_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}"
-  DEPENDS build_halide_h ${HEADER_FILES})
+#add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/include/Halide.h"
+#  COMMAND build_halide_h ${HEADER_FILES} > "${NATIVE_INCLUDE_PATH}Halide.h"
+#  WORKING_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}"
+#  DEPENDS build_halide_h ${HEADER_FILES})
 
-foreach (i ${RUNTIME_HEADER_FILES})
-  configure_file(runtime/${i} "${CMAKE_BINARY_DIR}/include" COPYONLY)
-endforeach()
+#foreach (i ${RUNTIME_HEADER_FILES})
+#  configure_file(runtime/${i} "${CMAKE_BINARY_DIR}/include" COPYONLY)
+#endforeach()
 
-add_library(Halide ${HALIDE_LIBRARY_TYPE}
+set(the_target MiniHalide)
+
+add_library(${the_target} ${HALIDE_LIBRARY_TYPE}
   AddImageChecks.cpp
   AddParameterChecks.cpp
   AlignLoads.cpp
@@ -416,22 +420,22 @@ add_library(Halide ${HALIDE_LIBRARY_TYPE}
   BoundsInference.cpp
   Buffer.cpp
   Closure.cpp
-  CodeGen_ARM.cpp
+#  CodeGen_ARM.cpp
   CodeGen_C.cpp
   CodeGen_GPU_Dev.cpp
-  CodeGen_GPU_Host.cpp
-  CodeGen_Hexagon.cpp
+#  CodeGen_GPU_Host.cpp
+#  CodeGen_Hexagon.cpp
   CodeGen_Internal.cpp
-  CodeGen_LLVM.cpp
-  CodeGen_MIPS.cpp
+#  CodeGen_LLVM.cpp
+#  CodeGen_MIPS.cpp
   CodeGen_OpenCL_Dev.cpp
-  CodeGen_Metal_Dev.cpp
-  CodeGen_OpenGL_Dev.cpp
-  CodeGen_OpenGLCompute_Dev.cpp
-  CodeGen_PowerPC.cpp
-  CodeGen_PTX_Dev.cpp
-  CodeGen_Posix.cpp
-  CodeGen_X86.cpp
+#  CodeGen_Metal_Dev.cpp
+#  CodeGen_OpenGL_Dev.cpp
+#  CodeGen_OpenGLCompute_Dev.cpp
+#  CodeGen_PowerPC.cpp
+#  CodeGen_PTX_Dev.cpp
+#  CodeGen_Posix.cpp
+#  CodeGen_X86.cpp
   CPlusPlusMangle.cpp
   CSE.cpp
   CanonicalizeGPUVars.cpp
@@ -455,8 +459,8 @@ add_library(Halide ${HALIDE_LIBRARY_TYPE}
   FuseGPUThreadLoops.cpp
   FuzzFloatStores.cpp
   Generator.cpp
-  HexagonOffload.cpp
-  HexagonOptimize.cpp
+  #HexagonOffload.cpp
+  #HexagonOptimize.cpp
   IR.cpp
   IREquality.cpp
   IRMatch.cpp
@@ -469,14 +473,14 @@ add_library(Halide ${HALIDE_LIBRARY_TYPE}
   Interval.cpp
   InjectHostDevBufferCopies.cpp
   InjectImageIntrinsics.cpp
-  InjectOpenGLIntrinsics.cpp
+#  InjectOpenGLIntrinsics.cpp
   Inline.cpp
   InlineReductions.cpp
   IntegerDivisionTable.cpp
   Introspection.cpp
   JITModule.cpp
-  LLVM_Output.cpp
-  LLVM_Runtime_Linker.cpp
+  #LLVM_Output.cpp
+  #LLVM_Runtime_Linker.cpp
   Lerp.cpp
   LoopCarry.cpp
   Lower.cpp
@@ -531,83 +535,82 @@ add_library(Halide ${HALIDE_LIBRARY_TYPE}
   VectorizeLoops.cpp
   WrapCalls.cpp
   WrapExternStages.cpp
-  "${CMAKE_BINARY_DIR}/include/Halide.h"
   ${HEADER_FILES}
-  ${INITIAL_MODULES}
+#  ${INITIAL_MODULES}
 )
 
 if (WIN32 AND NOT MSVC)
-  set_target_properties(Halide PROPERTIES LINK_FLAGS "-Wl,--export-all-symbols")
+  set_target_properties(${the_target} PROPERTIES LINK_FLAGS "-Wl,--export-all-symbols")
 endif()
 
 # List of LLVM Components required
 # This list will be appended to depending on the targets we need to support
 # See the output of ``llvm-config --components`` for a list of possible components
-set(LLVM_COMPONENTS mcjit;bitwriter;linker)
-list(APPEND LLVM_COMPONENTS passes)
+#set(LLVM_COMPONENTS mcjit;bitwriter;linker)
+#list(APPEND LLVM_COMPONENTS passes)
 
 # Set definitions and compiler flags
 
 # Note when PUBLIC or INTERFACE scope is used in target_compile_* then targets
 # that link against the Halide library inherit those options and definitions
-target_include_directories(Halide PRIVATE ${LLVM_INCLUDE_DIRS})
-target_include_directories(Halide INTERFACE "${CMAKE_BINARY_DIR}/include")
+#target_include_directories(${the_target} PRIVATE ${LLVM_INCLUDE_DIRS})
+#target_include_directories(${the_target} INTERFACE "${CMAKE_BINARY_DIR}/include")
 
 # TODO: For targets we can link against even fewer libraries by specifying
 # only the components we **REALLY** need (e.g. x86asmprinter;x86codegen rather than x86)
-if (TARGET_X86)
-  target_compile_definitions(Halide PRIVATE "-DWITH_X86=1")
-  list(APPEND LLVM_COMPONENTS X86)
-endif()
+#if (TARGET_X86)
+#  target_compile_definitions(Halide PRIVATE "-DWITH_X86=1")
+#  list(APPEND LLVM_COMPONENTS X86)
+#endif()
 
-if (TARGET_ARM)
-  target_compile_definitions(Halide PRIVATE "-DWITH_ARM=1")
-  list(APPEND LLVM_COMPONENTS ARM)
-endif()
+#if (TARGET_ARM)
+#  target_compile_definitions(Halide PRIVATE "-DWITH_ARM=1")
+#  list(APPEND LLVM_COMPONENTS ARM)
+#endif()
 
-if (TARGET_AARCH64)
-  target_compile_definitions(Halide PRIVATE "-DWITH_AARCH64=1")
-  list(APPEND LLVM_COMPONENTS AArch64)
-endif()
+#if (TARGET_AARCH64)
+#  target_compile_definitions(Halide PRIVATE "-DWITH_AARCH64=1")
+#  list(APPEND LLVM_COMPONENTS AArch64)
+#endif()
 
-if (TARGET_HEXAGON)
-  target_compile_definitions(Halide PRIVATE "-DWITH_HEXAGON=1")
-  list(APPEND LLVM_COMPONENTS Hexagon)
-endif()
+#if (TARGET_HEXAGON)
+#  target_compile_definitions(Halide PRIVATE "-DWITH_HEXAGON=1")
+#  list(APPEND LLVM_COMPONENTS Hexagon)
+#endif()
 
-if (TARGET_MIPS)
-  target_compile_definitions(Halide PRIVATE "-DWITH_MIPS=1")
-  list(APPEND LLVM_COMPONENTS Mips)
-endif()
+#if (TARGET_MIPS)
+#  target_compile_definitions(Halide PRIVATE "-DWITH_MIPS=1")
+#  list(APPEND LLVM_COMPONENTS Mips)
+#endif()
 
-if (TARGET_POWERPC)
-  target_compile_definitions(Halide PRIVATE "-DWITH_POWERPC=1")
-  list(APPEND LLVM_COMPONENTS PowerPC)
-endif()
+#if (TARGET_POWERPC)
+#  target_compile_definitions(Halide PRIVATE "-DWITH_POWERPC=1")
+#  list(APPEND LLVM_COMPONENTS PowerPC)
+#endif()
 
-if (TARGET_PTX)
-  target_compile_definitions(Halide PRIVATE "-DWITH_PTX=1")
-  list(APPEND LLVM_COMPONENTS NVPTX)
-endif()
+#if (TARGET_PTX)
+#  target_compile_definitions(Halide PRIVATE "-DWITH_PTX=1")
+#  list(APPEND LLVM_COMPONENTS NVPTX)
+#endif()
 
 if (TARGET_OPENCL)
-  target_compile_definitions(Halide PRIVATE "-DWITH_OPENCL=1")
+  target_compile_definitions(${the_target} PRIVATE "-DWITH_OPENCL=1")
 endif()
 
-if (TARGET_OPENGL)
-  target_compile_definitions(Halide PRIVATE "-DWITH_OPENGL=1")
-endif()
+#if (TARGET_OPENGL)
+#  target_compile_definitions(Halide PRIVATE "-DWITH_OPENGL=1")
+#endif()
 
-if (TARGET_METAL)
-  target_compile_definitions(Halide PRIVATE "-DWITH_METAL=1")
-endif()
+#if (TARGET_METAL)
+#  target_compile_definitions(Halide PRIVATE "-DWITH_METAL=1")
+#endif()
 
-target_compile_definitions(Halide PRIVATE "-DLLVM_VERSION=${LLVM_VERSION}")
-target_compile_definitions(Halide PRIVATE "-DCOMPILING_HALIDE")
-target_compile_definitions(Halide PRIVATE ${LLVM_DEFINITIONS})
-if (NOT LLVM_ENABLE_ASSERTIONS)
-  target_compile_definitions(Halide PRIVATE NDEBUG)
-endif()
+#target_compile_definitions(Halide PRIVATE "-DLLVM_VERSION=${LLVM_VERSION}")
+target_compile_definitions(${the_target} PRIVATE "-DCOMPILING_HALIDE")
+#target_compile_definitions(Halide PRIVATE ${LLVM_DEFINITIONS})
+#if (NOT LLVM_ENABLE_ASSERTIONS)
+#  target_compile_definitions(Halide PRIVATE NDEBUG)
+#endif()
 
 if (MSVC)
   # Suppress some warnings
@@ -615,47 +618,47 @@ if (MSVC)
   # 4267: conversion, possible loss of data
   # 4800: BOOL -> true or false
   # 4996: compiler encountered deprecated declaration
-  target_compile_options(Halide PUBLIC /wd4244 /wd4267 /wd4800 /wd4996)
+  target_compile_options(${the_target} PUBLIC /wd4244 /wd4267 /wd4800 /wd4996)
   # Injected from recent LLVM:
-  target_compile_options(Halide PUBLIC /wd4141)  # 'inline' used more than once
-  target_compile_options(Halide PUBLIC /wd4146)  # unary minus applied to unsigned type
-  target_compile_options(Halide PUBLIC /wd4291)  # No matching operator delete found
+  target_compile_options(${the_target} PUBLIC /wd4141)  # 'inline' used more than once
+  target_compile_options(${the_target} PUBLIC /wd4146)  # unary minus applied to unsigned type
+  target_compile_options(${the_target} PUBLIC /wd4291)  # No matching operator delete found
 
-  target_compile_definitions(Halide PUBLIC "-D_CRT_SECURE_NO_WARNINGS" "-D_SCL_SECURE_NO_WARNINGS")
+  target_compile_definitions(${the_target} PUBLIC "-D_CRT_SECURE_NO_WARNINGS" "-D_SCL_SECURE_NO_WARNINGS")
   # To compile LLVM headers following was taken from LLVM CMake files:
   # Disable sized deallocation if the flag is supported. MSVC fails to compile
   # the operator new overload in LLVM/IR/Function.h and Instruction.h otherwise.
   # See LLVM PR: 23513 (https://llvm.org/bugs/show_bug.cgi?id=23513)
   check_cxx_compiler_flag("/WX /Zc:sizedDealloc-" SUPPORTS_SIZED_DEALLOC)
   if (SUPPORTS_SIZED_DEALLOC)
-    target_compile_options(Halide PRIVATE "/Zc:sizedDealloc-")
+    target_compile_options(${the_target} PRIVATE "/Zc:sizedDealloc-")
   endif()
 else()
-  target_compile_options(Halide PUBLIC "-std=c++11") # Halide and its clients need to use C++11
-  target_compile_options(Halide PUBLIC "-fno-rtti")
+  target_compile_options(${the_target} PUBLIC "-std=c++11") # Halide and its clients need to use C++11
+  target_compile_options(${the_target} PUBLIC "-fno-rtti")
 endif()
 
 # Get the LLVM libraries we need
-llvm_map_components_to_libnames(LIBS ${LLVM_COMPONENTS})
+#llvm_map_components_to_libnames(LIBS ${LLVM_COMPONENTS})
 
 # When building a shared library the LLVM libraries will be
 # embedded in the Halide library. When building a static library
 # LLVM is not embedded but CMake knows that when building an executable
 # against the Halide static library that it needs to link LLVM too so
 # PRIVATE scope is the correct choice here.
-target_link_libraries(Halide PRIVATE ${LIBS})
+target_link_libraries(${the_target} PRIVATE ${LIBS})
 
-if (NOT MSVC)
-  set(LLVM_CONFIG ${LLVM_TOOLS_BINARY_DIR}/llvm-config)
-  execute_process(COMMAND "${LLVM_CONFIG}" --system-libs ${LLVM_COMPONENTS} OUTPUT_VARIABLE EXTRA_LIBS)
-  string(STRIP EXTRA_LIBS "${EXTRA_LIBS}")
-  string(REPLACE "-l" ";" EXTRA_LIBS "${EXTRA_LIBS}")
-  string(REPLACE "\n" "" EXTRA_LIBS "${EXTRA_LIBS}")
-  string(REPLACE " " "" EXTRA_LIBS "${EXTRA_LIBS}")
-  target_link_libraries(Halide PUBLIC ${EXTRA_LIBS})
-endif()
+#if (NOT MSVC)
+#  set(LLVM_CONFIG ${LLVM_TOOLS_BINARY_DIR}/llvm-config)
+#  execute_process(COMMAND "${LLVM_CONFIG}" --system-libs ${LLVM_COMPONENTS} OUTPUT_VARIABLE EXTRA_LIBS)
+#  string(STRIP EXTRA_LIBS "${EXTRA_LIBS}")
+#  string(REPLACE "-l" ";" EXTRA_LIBS "${EXTRA_LIBS}")
+#  string(REPLACE "\n" "" EXTRA_LIBS "${EXTRA_LIBS}")
+#  string(REPLACE " " "" EXTRA_LIBS "${EXTRA_LIBS}")
+#  target_link_libraries(Halide PUBLIC ${EXTRA_LIBS})
+#endif()
 
-add_dependencies(Halide
-  binary2cpp
-  build_halide_h
-)
+#add_dependencies(Halide
+#  binary2cpp
+#  build_halide_h
+#)

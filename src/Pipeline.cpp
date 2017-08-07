@@ -5,8 +5,10 @@
 #include "Func.h"
 #include "InferArguments.h"
 #include "IRVisitor.h"
+#ifdef HAVE_LLVM
 #include "LLVM_Headers.h"
 #include "LLVM_Output.h"
+#endif
 #include "Lower.h"
 #include "Outputs.h"
 #include "PrintLoopNest.h"

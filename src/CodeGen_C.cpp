@@ -21,15 +21,15 @@ using std::vector;
 using std::ostringstream;
 using std::map;
 
-extern "C" unsigned char halide_internal_initmod_inlined_c[];
-extern "C" unsigned char halide_internal_runtime_header_HalideRuntime_h[];
-extern "C" unsigned char halide_internal_runtime_header_HalideRuntimeCuda_h[];
-extern "C" unsigned char halide_internal_runtime_header_HalideRuntimeHexagonHost_h[];
-extern "C" unsigned char halide_internal_runtime_header_HalideRuntimeMetal_h[];
-extern "C" unsigned char halide_internal_runtime_header_HalideRuntimeOpenCL_h[];
-extern "C" unsigned char halide_internal_runtime_header_HalideRuntimeOpenGLCompute_h[];
-extern "C" unsigned char halide_internal_runtime_header_HalideRuntimeOpenGL_h[];
-extern "C" unsigned char halide_internal_runtime_header_HalideRuntimeQurt_h[];
+char halide_internal_initmod_inlined_c[] = "";
+char halide_internal_runtime_header_HalideRuntime_h[] = "";
+char halide_internal_runtime_header_HalideRuntimeCuda_h[] = "";
+char halide_internal_runtime_header_HalideRuntimeHexagonHost_h[] = "";
+char halide_internal_runtime_header_HalideRuntimeMetal_h[] = "";
+char halide_internal_runtime_header_HalideRuntimeOpenCL_h[] = "";
+char halide_internal_runtime_header_HalideRuntimeOpenGLCompute_h[] = "";
+char halide_internal_runtime_header_HalideRuntimeOpenGL_h[] = "";
+char halide_internal_runtime_header_HalideRuntimeQurt_h[] = "";
 
 namespace {
 

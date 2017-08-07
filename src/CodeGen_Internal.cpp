@@ -12,9 +12,7 @@ using std::map;
 using std::vector;
 using std::pair;
 
-using namespace llvm;
-
-namespace {
+/*namespace {
 
 vector<llvm::Type*> llvm_types(const Closure& closure, llvm::StructType *buffer_t, LLVMContext &context) {
     vector<llvm::Type *> res;
@@ -28,9 +26,9 @@ vector<llvm::Type*> llvm_types(const Closure& closure, llvm::StructType *buffer_
     return res;
 }
 
-}  // namespace
+}*/  // namespace
 
-StructType *build_closure_type(const Closure& closure,
+/*StructType *build_closure_type(const Closure& closure,
                                llvm::StructType *buffer_t,
                                LLVMContext *context) {
     StructType *struct_t = StructType::create(*context, "closure_t");
@@ -132,7 +130,7 @@ llvm::Type *llvm_type_of(LLVMContext *c, Halide::Type t) {
         llvm::Type *element_type = llvm_type_of(c, t.element_of());
         return VectorType::get(element_type, t.lanes());
     }
-}
+}*/
 
 // Returns true if the given function name is one of the Halide runtime
 // functions that takes a user_context pointer as its first parameter.
@@ -354,7 +352,7 @@ Stmt unpredicate_loads_stores(Stmt s) {
     return UnpredicateLoadsStores().mutate(s);
 }
 
-bool get_md_bool(llvm::Metadata *value, bool &result) {
+/*bool get_md_bool(llvm::Metadata *value, bool &result) {
     if (!value) {
         return false;
     }
@@ -474,7 +472,7 @@ void set_function_attributes_for_target(llvm::Function *fn, Target t) {
     // inaccurate even for us.
     fn->addFnAttr("reciprocal-estimates", "none");
     #endif
-}
+}*/
 
 }
 }

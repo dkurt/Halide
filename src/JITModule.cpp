@@ -9,11 +9,11 @@
 
 #include "CodeGen_Internal.h"
 #include "JITModule.h"
-#include "LLVM_Headers.h"
-#include "LLVM_Runtime_Linker.h"
+//#include "LLVM_Headers.h"
+//#include "LLVM_Runtime_Linker.h"
 #include "Debug.h"
-#include "LLVM_Output.h"
-#include "CodeGen_LLVM.h"
+//#include "LLVM_Output.h"
+//#include "CodeGen_LLVM.h"
 #include "Pipeline.h"
 
 
@@ -89,9 +89,9 @@ void load_opengl() {
     } else {
         debug(1) << "Looking for OpenGL support code...\n";
         string error;
-        llvm::sys::DynamicLibrary::LoadLibraryPermanently("/System/Library/Frameworks/AGL.framework/AGL", &error);
+        //llvm::sys::DynamicLibrary::LoadLibraryPermanently("/System/Library/Frameworks/AGL.framework/AGL", &error);
         user_assert(error.empty()) << "Could not find AGL.framework\n";
-        llvm::sys::DynamicLibrary::LoadLibraryPermanently("/System/Library/Frameworks/OpenGL.framework/OpenGL", &error);
+        //llvm::sys::DynamicLibrary::LoadLibraryPermanently("/System/Library/Frameworks/OpenGL.framework/OpenGL", &error);
         user_assert(error.empty()) << "Could not find OpenGL.framework\n";
     }
 #else
@@ -106,7 +106,7 @@ void load_metal() {
     } else {
         debug(1) << "Looking for Metal framework...\n";
         string error;
-        llvm::sys::DynamicLibrary::LoadLibraryPermanently("/System/Library/Frameworks/Metal.framework/Metal", &error);
+        //llvm::sys::DynamicLibrary::LoadLibraryPermanently("/System/Library/Frameworks/Metal.framework/Metal", &error);
         user_assert(error.empty()) << "Could not find Metal.framework\n";
     }
 #else
@@ -128,14 +128,14 @@ public:
 
     ~JITModuleContents() {
         if (execution_engine != nullptr) {
-            execution_engine->runStaticConstructorsDestructors(true);
+            //execution_engine->runStaticConstructorsDestructors(true);
             delete execution_engine;
         }
     }
 
     std::map<std::string, JITModule::Symbol> exports;
-    llvm::LLVMContext context;
-    ExecutionEngine *execution_engine;
+    //llvm::LLVMContext context;
+    int *execution_engine;
     std::vector<JITModule> dependencies;
     JITModule::Symbol entrypoint;
     JITModule::Symbol argv_entrypoint;
@@ -149,7 +149,7 @@ EXPORT RefCount &ref_count<JITModuleContents>(const JITModuleContents *f) { retu
 template <>
 EXPORT void destroy<JITModuleContents>(const JITModuleContents *f) { delete f; }
 
-namespace {
+/*namespace {
 
 // Retrieve a function pointer from an llvm module, possibly by compiling it.
 JITModule::Symbol compile_and_get_function(ExecutionEngine &ee, const string &name) {
@@ -233,7 +233,7 @@ public:
     }
 };
 
-}
+}*/
 
 JITModule::JITModule() {
     jit_module = new JITModuleContents();
@@ -242,19 +242,20 @@ JITModule::JITModule() {
 JITModule::JITModule(const Module &m, const LoweredFunc &fn,
                      const std::vector<JITModule> &dependencies) {
     jit_module = new JITModuleContents();
-    std::unique_ptr<llvm::Module> llvm_module(compile_module_to_llvm_module(m, jit_module->context));
+    //std::unique_ptr<llvm::Module> llvm_module(compile_module_to_llvm_module(m, jit_module->context));
     std::vector<JITModule> deps_with_runtime = dependencies;
-    std::vector<JITModule> shared_runtime = JITSharedRuntime::get(llvm_module.get(), m.target());
-    deps_with_runtime.insert(deps_with_runtime.end(), shared_runtime.begin(), shared_runtime.end());
-    compile_module(std::move(llvm_module), fn.name, m.target(), deps_with_runtime);
+    //std::vector<JITModule> shared_runtime = JITSharedRuntime::get(llvm_module.get(), m.target());
+    //deps_with_runtime.insert(deps_with_runtime.end(), shared_runtime.begin(), shared_runtime.end());
+    //compile_module(std::move(llvm_module), fn.name, m.target(), deps_with_runtime);
 }
 
+#if 0
 void JITModule::compile_module(std::unique_ptr<llvm::Module> m, const string &function_name, const Target &target,
                                const std::vector<JITModule> &dependencies,
                                const std::vector<std::string> &requested_exports) {
 
     // Ensure that LLVM is initialized
-    CodeGen_LLVM::initialize_llvm();
+    //CodeGen_LLVM::initialize_llvm();
 
     // Make the execution engine
     debug(2) << "Creating new execution engine\n";
@@ -355,6 +356,7 @@ void JITModule::compile_module(std::unique_ptr<llvm::Module> m, const string &fu
     jit_module->argv_entrypoint = argv_entrypoint;
     jit_module->name = function_name;
 }
+#endif
 
 const std::map<std::string, JITModule::Symbol> &JITModule::exports() const {
     return jit_module->exports;
@@ -416,7 +418,7 @@ void JITModule::add_symbol_for_export(const std::string &name, const Symbol &ext
 }
 
 void JITModule::add_extern_for_export(const std::string &name, const ExternCFunction &extern_c_function) {
-    Symbol symbol;
+    /*Symbol symbol;
     symbol.address = extern_c_function.address();
 
     // Struct types are uniqued on the context, but the lookup API is only available
@@ -446,7 +448,7 @@ void JITModule::add_extern_for_export(const std::string &name, const ExternCFunc
     }
 
     symbol.llvm_type = llvm::FunctionType::get(ret_type, llvm_arg_types, false);
-    jit_module->exports[name] = symbol;
+    jit_module->exports[name] = symbol;*/
 }
 
 void JITModule::memoization_cache_set_size(int64_t size) const {
@@ -686,7 +688,7 @@ JITModule &make_module(llvm::Module *for_module, Target target,
         }
 
         // This function is protected by a mutex so this is thread safe.
-        std::unique_ptr<llvm::Module> module(get_initial_module_for_target(one_gpu,
+        /*std::unique_ptr<llvm::Module> module(get_initial_module_for_target(one_gpu,
             &runtime.jit_module->context, true, runtime_kind != MainShared));
         if (for_module) {
             clone_target_options(*for_module, *module);
@@ -705,7 +707,7 @@ JITModule &make_module(llvm::Module *for_module, Target target,
 
         std::vector<std::string> halide_exports(halide_exports_unique.begin(), halide_exports_unique.end());
 
-        runtime.compile_module(std::move(module), "", target, deps, halide_exports);
+        runtime.compile_module(std::move(module), "", target, deps, halide_exports);*/
 
         if (runtime_kind == MainShared) {
             runtime_internal_handlers.custom_print =
@@ -750,13 +752,13 @@ JITModule &make_module(llvm::Module *for_module, Target target,
             runtime.jit_module->name = "GPU";
         }
 
-        uint64_t arg_addr =
-            runtime.jit_module->execution_engine->getGlobalValueAddress("halide_jit_module_argument");
+        uint64_t arg_addr = 0;
+            //runtime.jit_module->execution_engine->getGlobalValueAddress("halide_jit_module_argument");
 
         internal_assert(arg_addr != 0);
         *((void **)arg_addr) = runtime.jit_module.get();
 
-        uint64_t fun_addr = runtime.jit_module->execution_engine->getGlobalValueAddress("halide_jit_module_adjust_ref_count");
+        uint64_t fun_addr = 0;//runtime.jit_module->execution_engine->getGlobalValueAddress("halide_jit_module_adjust_ref_count");
         internal_assert(fun_addr != 0);
         *(void (**)(void *arg, int32_t count))fun_addr = &adjust_module_ref_count;
     }

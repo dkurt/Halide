@@ -7,6 +7,7 @@
 #include "IROperator.h"
 #include "IRMutator.h"
 #include "EliminateBoolVectors.h"
+#include "Error.h"
 
 namespace Halide {
 namespace Internal {

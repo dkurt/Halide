@@ -1,10 +1,11 @@
 #include <iostream>
 #include <string>
+#include <map>
 
 #include "Target.h"
 #include "Debug.h"
 #include "Error.h"
-#include "LLVM_Headers.h"
+//#include "LLVM_Headers.h"
 #include "Util.h"
 
 #if defined(__powerpc__) && defined(__linux__)

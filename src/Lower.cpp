@@ -233,11 +233,11 @@ Module lower(const vector<Function> &output_funcs, const string &pipeline_name, 
         debug(2) << "Lowering after injecting host <-> dev buffer copies:\n" << s << "\n\n";
     }
 
-    if (t.has_feature(Target::OpenGL)) {
+    /*if (t.has_feature(Target::OpenGL)) {
         debug(1) << "Injecting OpenGL texture intrinsics...\n";
         s = inject_opengl_intrinsics(s);
         debug(2) << "Lowering after OpenGL intrinsics:\n" << s << "\n\n";
-    }
+    }*/
 
     if (t.has_gpu_feature() ||
         t.has_feature(Target::OpenGLCompute)) {
@@ -314,9 +314,9 @@ Module lower(const vector<Function> &output_funcs, const string &pipeline_name, 
     s = simplify(s);
     debug(1) << "Lowering after final simplification:\n" << s << "\n\n";
 
-    debug(1) << "Splitting off Hexagon offload...\n";
-    s = inject_hexagon_rpc(s, t, result_module);
-    debug(2) << "Lowering after splitting off Hexagon offload:\n" << s << '\n';
+    //debug(1) << "Splitting off Hexagon offload...\n";
+    //s = inject_hexagon_rpc(s, t, result_module);
+    //debug(2) << "Lowering after splitting off Hexagon offload:\n" << s << '\n';
 
     if (!custom_passes.empty()) {
         for (size_t i = 0; i < custom_passes.size(); i++) {
