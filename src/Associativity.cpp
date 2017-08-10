@@ -452,7 +452,7 @@ AssociativeOp prove_associativity(const string &f, vector<Expr> args, vector<Exp
     debug(5) << "Found associative ops:\n" << assoc_op << "\n";
     return assoc_op;
 }
-
+/*
 namespace {
 
 std::string print_args(const string &f, const vector<Expr> &args, const vector<Expr> &exprs) {
@@ -532,10 +532,10 @@ void check_associativity(const string &f, vector<Expr> args, vector<Expr> exprs,
     }
 }
 
-} // anonymous namespace
+} // anonymous namespace */
 
 void associativity_test() {
-    typedef AssociativeOp::Replacement Replacement;
+/*  typedef AssociativeOp::Replacement Replacement;
 
     {
         // Tests for saturating addition
@@ -786,7 +786,7 @@ void associativity_test() {
                             );
     }
 
-    std::cout << "Associativity test passed" << std::endl;
+    std::cout << "Associativity test passed" << std::endl;*/
 }
 
 

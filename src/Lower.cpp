@@ -209,7 +209,7 @@ Module lower(const vector<Function> &output_funcs, const string &pipeline_name, 
     debug(2) << "Lowering after storage flattening:\n" << s << "\n\n";
 
     debug(1) << "Unpacking buffer arguments...\n";
-    s = unpack_buffers(s);
+    // s = unpack_buffers(s);
     debug(2) << "Lowering after unpacking buffer arguments...\n";
 
     if (any_memoized) {
@@ -229,7 +229,7 @@ Module lower(const vector<Function> &output_funcs, const string &pipeline_name, 
         debug(2) << "Lowering after selecting a GPU API:\n" << s << "\n\n";
 
         debug(1) << "Injecting host <-> dev buffer copies...\n";
-        s = inject_host_dev_buffer_copies(s, t);
+        // s = inject_host_dev_buffer_copies(s, t);
         debug(2) << "Lowering after injecting host <-> dev buffer copies:\n" << s << "\n\n";
     }
 

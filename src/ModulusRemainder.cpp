@@ -107,7 +107,7 @@ ModulusRemainder ComputeModulusRemainder::analyze(Expr e) {
     e.accept(this);
     return ModulusRemainder(modulus, remainder);
 }
-
+/*
 namespace {
 void check(Expr e, int m, int r) {
     ModulusRemainder result = modulus_remainder(e);
@@ -121,10 +121,10 @@ void check(Expr e, int m, int r) {
         exit(-1);
     }
 }
-}
+}*/
 
 void modulus_remainder_test() {
-    Expr x = Variable::make(Int(32), "x");
+/*  Expr x = Variable::make(Int(32), "x");
     Expr y = Variable::make(Int(32), "y");
 
     check((30*x + 3) + (40*y + 2), 10, 5);
@@ -135,7 +135,7 @@ void modulus_remainder_test() {
     check(123, 0, 123);
     check(Let::make("y", x*3 + 4, y*3 + 4), 9, 7);
 
-    std::cout << "modulus_remainder test passed\n";
+    std::cout << "modulus_remainder test passed\n";*/
 }
 
 

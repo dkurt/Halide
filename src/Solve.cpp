@@ -1357,7 +1357,7 @@ Expr and_condition_over_domain(Expr e, const Scope<Interval> &varying) {
 }
 
 // Testing code
-
+/*
 namespace {
 
 void check_solve(Expr a, Expr b) {
@@ -1402,10 +1402,10 @@ void check_and_condition(Expr orig, Expr result, Interval i) {
         << " reduced to " << cond
         << " instead of " << result << "\n";
 }
-}
+}*/
 
 void solve_test() {
-    Expr x = Variable::make(Int(32), "x");
+/*  Expr x = Variable::make(Int(32), "x");
     Expr y = Variable::make(Int(32), "y");
     Expr z = Variable::make(Int(32), "z");
 
@@ -1585,7 +1585,7 @@ void solve_test() {
         SolverResult solved = solve_expression(expr, "y");
     }
 
-    debug(0) << "Solve test passed\n";
+    debug(0) << "Solve test passed\n";*/
 }
 
 }

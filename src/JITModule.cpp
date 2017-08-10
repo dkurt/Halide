@@ -71,48 +71,48 @@ struct SharedOpenCLContext {
     // We never free the context, for the same reason as above.
 } cl_ctx;
 
-void load_opengl() {
-#if defined(__linux__)
-    if (have_symbol("glXGetCurrentContext") && have_symbol("glDeleteTextures")) {
-        debug(1) << "OpenGL support code already linked in...\n";
-    } else {
-        debug(1) << "Looking for OpenGL support code...\n";
-        string error;
-        llvm::sys::DynamicLibrary::LoadLibraryPermanently("libGL.so.1", &error);
-        user_assert(error.empty()) << "Could not find libGL.so\n";
-        llvm::sys::DynamicLibrary::LoadLibraryPermanently("libX11.so", &error);
-        user_assert(error.empty()) << "Could not find libX11.so\n";
-    }
-#elif defined(__APPLE__)
-    if (have_symbol("aglCreateContext") && have_symbol("glDeleteTextures")) {
-        debug(1) << "OpenGL support code already linked in...\n";
-    } else {
-        debug(1) << "Looking for OpenGL support code...\n";
-        string error;
-        //llvm::sys::DynamicLibrary::LoadLibraryPermanently("/System/Library/Frameworks/AGL.framework/AGL", &error);
-        user_assert(error.empty()) << "Could not find AGL.framework\n";
-        //llvm::sys::DynamicLibrary::LoadLibraryPermanently("/System/Library/Frameworks/OpenGL.framework/OpenGL", &error);
-        user_assert(error.empty()) << "Could not find OpenGL.framework\n";
-    }
-#else
-    internal_error << "JIT support for OpenGL on anything other than linux or OS X not yet implemented\n";
-#endif
-}
+// void load_opengl() {
+// #if defined(__linux__)
+//     if (have_symbol("glXGetCurrentContext") && have_symbol("glDeleteTextures")) {
+//         debug(1) << "OpenGL support code already linked in...\n";
+//     } else {
+//         debug(1) << "Looking for OpenGL support code...\n";
+//         string error;
+//         llvm::sys::DynamicLibrary::LoadLibraryPermanently("libGL.so.1", &error);
+//         user_assert(error.empty()) << "Could not find libGL.so\n";
+//         llvm::sys::DynamicLibrary::LoadLibraryPermanently("libX11.so", &error);
+//         user_assert(error.empty()) << "Could not find libX11.so\n";
+//     }
+// #elif defined(__APPLE__)
+//     if (have_symbol("aglCreateContext") && have_symbol("glDeleteTextures")) {
+//         debug(1) << "OpenGL support code already linked in...\n";
+//     } else {
+//         debug(1) << "Looking for OpenGL support code...\n";
+//         string error;
+//         //llvm::sys::DynamicLibrary::LoadLibraryPermanently("/System/Library/Frameworks/AGL.framework/AGL", &error);
+//         user_assert(error.empty()) << "Could not find AGL.framework\n";
+//         //llvm::sys::DynamicLibrary::LoadLibraryPermanently("/System/Library/Frameworks/OpenGL.framework/OpenGL", &error);
+//         user_assert(error.empty()) << "Could not find OpenGL.framework\n";
+//     }
+// #else
+//     internal_error << "JIT support for OpenGL on anything other than linux or OS X not yet implemented\n";
+// #endif
+// }
 
-void load_metal() {
-#if defined(__APPLE__)
-    if (have_symbol("MTLCreateSystemDefaultDevice")) {
-        debug(1) << "Metal framework already linked in...\n";
-    } else {
-        debug(1) << "Looking for Metal framework...\n";
-        string error;
-        //llvm::sys::DynamicLibrary::LoadLibraryPermanently("/System/Library/Frameworks/Metal.framework/Metal", &error);
-        user_assert(error.empty()) << "Could not find Metal.framework\n";
-    }
-#else
-    internal_error << "JIT support for Metal only implemented on OS X\n";
-#endif
-}
+// void load_metal() {
+// #if defined(__APPLE__)
+//     if (have_symbol("MTLCreateSystemDefaultDevice")) {
+//         debug(1) << "Metal framework already linked in...\n";
+//     } else {
+//         debug(1) << "Looking for Metal framework...\n";
+//         string error;
+//         //llvm::sys::DynamicLibrary::LoadLibraryPermanently("/System/Library/Frameworks/Metal.framework/Metal", &error);
+//         user_assert(error.empty()) << "Could not find Metal.framework\n";
+//     }
+// #else
+//     internal_error << "JIT support for Metal only implemented on OS X\n";
+// #endif
+// }
 
 }
 
@@ -659,29 +659,29 @@ JITModule &make_module(llvm::Module *for_module, Target target,
             one_gpu.set_feature(Target::OpenCL);
             module_name = "opencl";
             break;
-        case Metal:
-            one_gpu.set_feature(Target::Metal);
-            module_name = "metal";
-            load_metal();
-            break;
-        case CUDA:
-            one_gpu.set_feature(Target::CUDA);
-            module_name = "cuda";
-            break;
-        case OpenGL:
-            one_gpu.set_feature(Target::OpenGL);
-            module_name = "opengl";
-            load_opengl();
-            break;
-        case OpenGLCompute:
-            one_gpu.set_feature(Target::OpenGLCompute);
-            module_name = "openglcompute";
-            load_opengl();
-            break;
-        case Hexagon:
-            one_gpu.set_feature(Target::HVX_64);
-            module_name = "hexagon";
-            break;
+        // case Metal:
+        //     one_gpu.set_feature(Target::Metal);
+        //     module_name = "metal";
+        //     load_metal();
+        //     break;
+        // case CUDA:
+        //     one_gpu.set_feature(Target::CUDA);
+        //     module_name = "cuda";
+        //     break;
+        // case OpenGL:
+        //     one_gpu.set_feature(Target::OpenGL);
+        //     module_name = "opengl";
+        //     load_opengl();
+        //     break;
+        // case OpenGLCompute:
+        //     one_gpu.set_feature(Target::OpenGLCompute);
+        //     module_name = "openglcompute";
+        //     load_opengl();
+        //     break;
+        // case Hexagon:
+        //     one_gpu.set_feature(Target::HVX_64);
+        //     module_name = "hexagon";
+        //     break;
         default:
             module_name = "shared runtime";
             break;

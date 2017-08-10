@@ -203,7 +203,7 @@ void Module::append(const Internal::LoweredFunc &function) {
 void Module::append(const Module &module) {
     contents->submodules.push_back(module);
 }
- 
+
 void Module::append(const ExternalCode &external_code) {
     contents->external_code.push_back(external_code);
 }
@@ -241,7 +241,7 @@ Buffer<uint8_t> Module::compile_to_buffer() const {
     /*if (target().arch == Target::Hexagon) {
         return compile_module_to_hexagon_shared_object(*this);
     }
-    
+
     llvm::LLVMContext context;
     std::unique_ptr<llvm::Module> llvm_module(compile_module_to_llvm_module(*this, context));
 
@@ -359,7 +359,7 @@ void Module::compile(const Outputs &output_files) const {
             auto out = make_raw_fd_ostream(output_files.llvm_assembly_name);
             compile_llvm_module_to_llvm_assembly(*llvm_module, *out);
         }
-    }*/
+    }
     if (!output_files.c_header_name.empty()) {
         debug(1) << "Module.compile(): c_header_name " << output_files.c_header_name << "\n";
         std::ofstream file(output_files.c_header_name);
@@ -387,7 +387,7 @@ void Module::compile(const Outputs &output_files) const {
     if (!output_files.stmt_html_name.empty()) {
         debug(1) << "Module.compile(): stmt_html_name " << output_files.stmt_html_name << "\n";
         Internal::print_to_html(output_files.stmt_html_name, *this);
-    }
+    }*/
     assert(0);
 }
 

@@ -1,13 +1,13 @@
 include(CheckCXXCompilerFlag)
 
-#add_executable(build_halide_h ../tools/build_halide_h.cpp)
+add_executable(build_halide_h ../tools/build_halide_h.cpp)
 #add_executable(binary2cpp ../tools/binary2cpp.cpp)
 
-#if (MSVC)
+if (MSVC)
   # disable irrelevant warnings
-#  target_compile_options(build_halide_h PUBLIC /wd4996)
-#  target_compile_options(binary2cpp PUBLIC /wd4996)
-#endif()
+ target_compile_options(build_halide_h PUBLIC /wd4996)
+ # target_compile_options(binary2cpp PUBLIC /wd4996)
+endif()
 
 if (MSVC)
   # -g produces dwarf debugging info, which is not useful on windows
@@ -282,7 +282,7 @@ set(HEADER_FILES
   #CodeGen_Posix.h
   #CodeGen_X86.h
   ConciseCasts.h
-  CPlusPlusMangle.h
+  # CPlusPlusMangle.h
   Debug.h
   DebugArguments.h
   DebugToFile.h
@@ -292,7 +292,7 @@ set(HEADER_FILES
   DeviceArgument.h
   DeviceInterface.h
   EarlyFree.h
-  Elf.h
+  # Elf.h
   EliminateBoolVectors.h
   Error.h
   Expr.h
@@ -305,8 +305,7 @@ set(HEADER_FILES
   Function.h
   FuseGPUThreadLoops.h
   FuzzFloatStores.h
-  Generator.h
-  Halide.h
+  # Generator.h
   #HexagonOffload.h
   #HexagonOptimize.h
   IR.h
@@ -319,23 +318,23 @@ set(HEADER_FILES
   ImageParam.h
   InferArguments.h
   Interval.h
-  InjectHostDevBufferCopies.h
+  # InjectHostDevBufferCopies.h
   InjectImageIntrinsics.h
-  InjectOpenGLIntrinsics.h
+  # InjectOpenGLIntrinsics.h
   Inline.h
   InlineReductions.h
   IntegerDivisionTable.h
   Introspection.h
   IntrusivePtr.h
   JITModule.h
-  LLVM_Output.h
-  LLVM_Runtime_Linker.h
+  # LLVM_Output.h
+  # LLVM_Runtime_Linker.h
   Lambda.h
   Lerp.h
   LoopCarry.h
   Lower.h
   MainPage.h
-  MatlabWrapper.h
+  # MatlabWrapper.h
   Memoization.h
   Module.h
   ModulusRemainder.h
@@ -370,7 +369,7 @@ set(HEADER_FILES
   SlidingWindow.h
   Solve.h
   SplitTuples.h
-  StmtToHtml.h
+  # StmtToHtml.h
   StorageFlattening.h
   StorageFolding.h
   Substitute.h
@@ -382,7 +381,7 @@ set(HEADER_FILES
   Type.h
   UnifyDuplicateLets.h
   UniquifyVariableNames.h
-  UnpackBuffers.h
+  # UnpackBuffers.h
   UnrollLoops.h
   Util.h
   Var.h
@@ -396,16 +395,16 @@ set(HEADER_FILES
 
 file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/include")
 file(TO_NATIVE_PATH "${CMAKE_BINARY_DIR}/include/" NATIVE_INCLUDE_PATH)
-#add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/include/Halide.h"
-#  COMMAND build_halide_h ${HEADER_FILES} > "${NATIVE_INCLUDE_PATH}Halide.h"
-#  WORKING_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}"
-#  DEPENDS build_halide_h ${HEADER_FILES})
+add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/include/Halide.h"
+ COMMAND build_halide_h ${HEADER_FILES} > "${NATIVE_INCLUDE_PATH}Halide.h"
+ WORKING_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}"
+ DEPENDS build_halide_h ${HEADER_FILES})
 
-#foreach (i ${RUNTIME_HEADER_FILES})
-#  configure_file(runtime/${i} "${CMAKE_BINARY_DIR}/include" COPYONLY)
-#endforeach()
+foreach (i ${RUNTIME_HEADER_FILES})
+ configure_file(runtime/${i} "${CMAKE_BINARY_DIR}/include" COPYONLY)
+endforeach()
 
-set(the_target MiniHalide)
+set(the_target Halide)
 
 add_library(${the_target} ${HALIDE_LIBRARY_TYPE}
   AddImageChecks.cpp
@@ -436,7 +435,7 @@ add_library(${the_target} ${HALIDE_LIBRARY_TYPE}
 #  CodeGen_PTX_Dev.cpp
 #  CodeGen_Posix.cpp
 #  CodeGen_X86.cpp
-  CPlusPlusMangle.cpp
+  # CPlusPlusMangle.cpp
   CSE.cpp
   CanonicalizeGPUVars.cpp
   Debug.cpp
@@ -448,7 +447,7 @@ add_library(${the_target} ${HALIDE_LIBRARY_TYPE}
   DeviceArgument.cpp
   DeviceInterface.cpp
   EarlyFree.cpp
-  Elf.cpp
+  # Elf.cpp
   EliminateBoolVectors.cpp
   Error.cpp
   FastIntegerDivide.cpp
@@ -458,7 +457,7 @@ add_library(${the_target} ${HALIDE_LIBRARY_TYPE}
   Function.cpp
   FuseGPUThreadLoops.cpp
   FuzzFloatStores.cpp
-  Generator.cpp
+  # Generator.cpp
   #HexagonOffload.cpp
   #HexagonOptimize.cpp
   IR.cpp
@@ -471,7 +470,7 @@ add_library(${the_target} ${HALIDE_LIBRARY_TYPE}
   ImageParam.cpp
   InferArguments.cpp
   Interval.cpp
-  InjectHostDevBufferCopies.cpp
+  # InjectHostDevBufferCopies.cpp
   InjectImageIntrinsics.cpp
 #  InjectOpenGLIntrinsics.cpp
   Inline.cpp
@@ -484,7 +483,7 @@ add_library(${the_target} ${HALIDE_LIBRARY_TYPE}
   Lerp.cpp
   LoopCarry.cpp
   Lower.cpp
-  MatlabWrapper.cpp
+  # MatlabWrapper.cpp
   Memoization.cpp
   Module.cpp
   ModulusRemainder.cpp
@@ -516,7 +515,7 @@ add_library(${the_target} ${HALIDE_LIBRARY_TYPE}
   SlidingWindow.cpp
   Solve.cpp
   SplitTuples.cpp
-  StmtToHtml.cpp
+  # StmtToHtml.cpp
   StorageFlattening.cpp
   StorageFolding.cpp
   Substitute.cpp
@@ -527,7 +526,7 @@ add_library(${the_target} ${HALIDE_LIBRARY_TYPE}
   Type.cpp
   UnifyDuplicateLets.cpp
   UniquifyVariableNames.cpp
-  UnpackBuffers.cpp
+  # UnpackBuffers.cpp
   UnrollLoops.cpp
   Util.cpp
   Var.cpp
@@ -535,6 +534,7 @@ add_library(${the_target} ${HALIDE_LIBRARY_TYPE}
   VectorizeLoops.cpp
   WrapCalls.cpp
   WrapExternStages.cpp
+  "${CMAKE_BINARY_DIR}/include/Halide.h"
   ${HEADER_FILES}
 #  ${INITIAL_MODULES}
 )
@@ -658,7 +658,7 @@ target_link_libraries(${the_target} PRIVATE ${LIBS})
 #  target_link_libraries(Halide PUBLIC ${EXTRA_LIBS})
 #endif()
 
-#add_dependencies(Halide
-#  binary2cpp
-#  build_halide_h
-#)
+add_dependencies(Halide
+ # binary2cpp
+ build_halide_h
+)
