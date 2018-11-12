@@ -9,7 +9,7 @@ bool vector_store = false, scalar_store = false;
 int my_trace(void *user_context, const halide_trace_event *ev) {
 
     if (ev->event == halide_trace_store) {
-        if (ev->vector_width > 1) {
+        if (ev->type.lanes > 1) {
             vector_store = true;
         } else {
             scalar_store = true;
@@ -27,11 +27,11 @@ int main(int argc, char **argv) {
     f.set_custom_trace(&my_trace);
     f.trace_stores();
 
-    Image<int> result_1 = f.realize(10);
+    Buffer<int> result_1 = f.realize(10);
 
     f.vectorize(x, 4);
 
-    Image<int> result_2 = f.realize(10);
+    Buffer<int> result_2 = f.realize(10);
 
     // There should have been vector stores and scalar stores.
     if (!vector_store || !scalar_store) {

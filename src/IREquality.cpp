@@ -349,9 +349,8 @@ void IRComparer::visit(const ProducerConsumer *op) {
     const ProducerConsumer *s = stmt.as<ProducerConsumer>();
 
     compare_names(s->name, op->name);
-    compare_stmt(s->produce, op->produce);
-    compare_stmt(s->update, op->update);
-    compare_stmt(s->consume, op->consume);
+    compare_scalar(s->is_producer, op->is_producer);
+    compare_stmt(s->body, op->body);
 }
 
 void IRComparer::visit(const For *op) {
@@ -444,8 +443,18 @@ bool equal(Expr a, Expr b) {
     return IRComparer().compare_expr(a, b) == IRComparer::Equal;
 }
 
+bool graph_equal(Expr a, Expr b) {
+    IRCompareCache cache(8);
+    return IRComparer(&cache).compare_expr(a, b) == IRComparer::Equal;
+}
+
 bool equal(Stmt a, Stmt b) {
     return IRComparer().compare_stmt(a, b) == IRComparer::Equal;
+}
+
+bool graph_equal(Stmt a, Stmt b) {
+    IRCompareCache cache(8);
+    return IRComparer(&cache).compare_stmt(a, b) == IRComparer::Equal;
 }
 
 bool IRDeepCompare::operator()(const Expr &a, const Expr &b) const {

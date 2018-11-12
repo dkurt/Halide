@@ -217,14 +217,49 @@ struct Simplification {
     Interval interval;
 };
 
+class ExprUsesInvalidBuffers : public IRVisitor {
+    using IRVisitor::visit;
+
+    const Scope<int> &invalid_buffers;
+
+    void visit(const Load *op) {
+        if (invalid_buffers.contains(op->name)) {
+            invalid = true;
+        } else {
+            IRVisitor::visit(op);
+        }
+    }
+public:
+    ExprUsesInvalidBuffers(const Scope<int> &buffers) : invalid_buffers(buffers), invalid(false) {}
+    bool invalid;
+};
+
+/** Check if any references to buffers in an expression is invalid. */
+bool expr_uses_invalid_buffers(Expr e, const Scope<int> &invalid_buffers) {
+    ExprUsesInvalidBuffers uses(invalid_buffers);
+    e.accept(&uses);
+    return uses.invalid;
+}
+
 // Then we define the visitor that hunts for them.
 class FindSimplifications : public IRVisitor {
     using IRVisitor::visit;
 
     Scope<int> depends_on_loop_var;
+    Scope<int> buffers;
+
+    void visit(const Allocate *op) {
+        buffers.push(op->name, 0);
+        IRVisitor::visit(op);
+    }
 
     void new_simplification(Expr condition, Expr old, Expr likely_val, Expr unlikely_val) {
         if (!expr_uses_vars(condition, depends_on_loop_var)) {
+            return;
+        }
+        if (expr_uses_invalid_buffers(condition, buffers)) {
+            // The condition refers to buffer allocated in the inner loop.
+            // We should throw away the condition
             return;
         }
         condition = RemoveLikelyTags().mutate(condition);
@@ -413,6 +448,14 @@ class PartitionLoops : public IRMutator {
             return;
         }
 
+        // We shouldn't partition GLSL loops - they have control-flow
+        // constraints.
+        if (op->device_api == DeviceAPI::GLSL) {
+            stmt = op;
+            in_gpu_loop = old_in_gpu_loop;
+            return;
+        }
+
         // Find simplifications in this loop body
         FindSimplifications finder(op->name);
         body.accept(&finder);
@@ -446,8 +489,8 @@ class PartitionLoops : public IRMutator {
                      << "  tight: " << s.tight << "\n";
 
             // Accept all non-empty intervals
-            if (!interval_is_empty(s.interval)) {
-                if (interval_has_lower_bound(s.interval)) {
+            if (!s.interval.is_empty()) {
+                if (s.interval.has_lower_bound()) {
                     Expr m = s.interval.min;
                     if (!s.tight) {
                         lower_bound_is_tight = false;
@@ -462,7 +505,7 @@ class PartitionLoops : public IRMutator {
                         lower_bound_is_tight = false;
                     }
                 }
-                if (interval_has_upper_bound(s.interval)) {
+                if (s.interval.has_upper_bound()) {
                     Expr m = s.interval.max;
                     if (!s.tight) {
                         upper_bound_is_tight = false;
@@ -499,17 +542,17 @@ class PartitionLoops : public IRMutator {
         }
 
         // Find simplifications we can apply to the prologue and epilogue.
-        for (auto const &s : middle_simps) {
+        for (const auto &s : middle_simps) {
             // If it goes down to minus infinity, we can also
             // apply it to the prologue
             if (can_simplify_prologue &&
-                !interval_has_lower_bound(s.interval)) {
+                !s.interval.has_lower_bound()) {
                 prologue_simps.push_back(s);
             }
 
             // If it goes up to positive infinity, we can also
             // apply it to the epilogue
-            if (!interval_has_upper_bound(s.interval)) {
+            if (!s.interval.has_upper_bound()) {
                 epilogue_simps.push_back(s);
             }
 
@@ -517,7 +560,7 @@ class PartitionLoops : public IRMutator {
             // it's tight, then the reverse rule can be applied to the
             // prologue.
             if (can_simplify_prologue &&
-                interval_has_lower_bound(s.interval) &&
+                s.interval.has_lower_bound() &&
                 lower_bound_is_tight) {
                 internal_assert(s.tight);
                 Simplification s2 = s;
@@ -528,7 +571,7 @@ class PartitionLoops : public IRMutator {
                 std::swap(s2.likely_value, s2.unlikely_value);
                 prologue_simps.push_back(s2);
             }
-            if (interval_has_upper_bound(s.interval) &&
+            if (s.interval.has_upper_bound() &&
                 upper_bound_is_tight) {
                 internal_assert(s.tight);
                 Simplification s2 = s;
@@ -574,8 +617,11 @@ class PartitionLoops : public IRMutator {
             std::sort(max_vals.begin(), max_vals.end(), IRDeepCompare());
             max_vals.push_back(op->min + op->extent - 1);
             epilogue_val = fold_left(max_vals, Min::make) + 1;
+            // Stop the epilogue from running before the start of the loop/prologue
             if (make_prologue) {
                 epilogue_val = max(epilogue_val, prologue_val);
+            } else {
+                epilogue_val = max(op->min, epilogue_val);
             }
             // epilogue_val = print(epilogue_val, epilogue_name);
             max_steady = Variable::make(Int(32), epilogue_name);
@@ -632,7 +678,7 @@ class PartitionLoops : public IRMutator {
             prologue_val = op->min;
         }
 
-        if (is_one(simplify(epilogue_val <= prologue_val))) {
+        if (can_prove(epilogue_val <= prologue_val)) {
             // The steady state is empty. I've made a huge
             // mistake. Try to partition a loop further in.
             IRMutator::visit(op);
@@ -677,7 +723,13 @@ class RenormalizeGPULoops : public IRMutator {
     vector<pair<string, Expr> > lifted_lets;
 
     void visit(const For *op) {
-        if (ends_with(op->name, Var::gpu_threads().name())) {
+        if (op->device_api == DeviceAPI::GLSL) {
+            // The partitioner did not enter GLSL loops
+            stmt = op;
+            return;
+        }
+
+        if (ends_with(op->name, "__thread_id_x")) {
             in_thread_loop = true;
             IRMutator::visit(op);
             in_thread_loop = false;
@@ -891,9 +943,46 @@ class CollapseSelects : public IRMutator {
     }
 };
 
+class ContainsLoop : public IRVisitor {
+    using IRVisitor::visit;
+    void visit(const For *op) {
+        result = true;
+    }
+public:
+    bool result = false;
+};
+
+class LowerLikelyIfInnermost : public IRMutator {
+    using IRMutator::visit;
+
+    bool inside_innermost_loop = false;
+
+    void visit(const Call *op) {
+        if (op->is_intrinsic(Call::likely_if_innermost)) {
+            internal_assert(op->args.size() == 1);
+            if (inside_innermost_loop) {
+                expr = Call::make(op->type, Call::likely, {mutate(op->args[0])}, Call::PureIntrinsic);
+            } else {
+                expr = mutate(op->args[0]);
+            }
+        } else {
+            IRMutator::visit(op);
+        }
+    }
+
+    void visit(const For *op) {
+        ContainsLoop c;
+        op->body.accept(&c);
+        inside_innermost_loop = !c.result;
+        IRMutator::visit(op);
+        inside_innermost_loop = false;
+    }
+};
+
 }
 
 Stmt partition_loops(Stmt s) {
+    s = LowerLikelyIfInnermost().mutate(s);
     s = MarkClampedRampsAsLikely().mutate(s);
     s = ExpandSelects().mutate(s);
     s = PartitionLoops().mutate(s);

@@ -4,13 +4,10 @@
 using namespace Halide;
 
 int main(int argc, char **argv) {
-    if (!get_jit_target_from_environment().has_gpu_feature()) {
-        printf("No gpu target enabled. Skipping test.\n");
-        return 0;
-    }
+    Target target = get_jit_target_from_environment();
 
     Var x, y, z, w;
-    Image<int> full(80, 60, 10, 10);
+    Buffer<int> full(80, 60, 10, 10);
 
     const int x_off = 4, y_off = 8, z_off = 2, w_off = 4;
     const int x_size = 16, y_size = 16, z_size = 3, w_size = 3;
@@ -29,10 +26,10 @@ int main(int argc, char **argv) {
     cropped.stride[1] *= 2;
     cropped.stride[2] *= 2;
     cropped.stride[3] *= 2;
-    Buffer out(Int(32), &cropped);
+    Buffer<int32_t> out(cropped);
 
     // Make a bitmask representing the region inside the crop.
-    Image<bool> in_subregion(80, 60, 10, 10);
+    Buffer<bool> in_subregion(80, 60, 10, 10);
     Expr test = ((x >= x_off) && (x < x_off + x_size*2) &&
                  (y >= y_off) && (y < y_off + y_size*2) &&
                  (z >= z_off) && (z < z_off + z_size*2) &&
@@ -47,8 +44,13 @@ int main(int argc, char **argv) {
 
     Func f;
     f(x, y, z, w) = 3*x + 2*y + z + 4*w;
-    f.gpu_tile(x, y, 16, 16);
-    f.output_buffer().set_stride(0, Expr());
+    if (target.has_gpu_feature()) {
+        Var xi, yi;
+        f.gpu_tile(x, y, xi, yi, 16, 16);
+    } else if (target.features_any_of({Target::HVX_64, Target::HVX_128})) {
+        f.hexagon().vectorize(x, 16);
+    }
+    f.output_buffer().dim(0).set_stride(Expr());
     f.realize(out);
 
     // Put some data in the full host buffer, avoiding the region

@@ -1,6 +1,7 @@
 #include <iostream>
 
 #include "CodeGen_X86.h"
+#include "ConciseCasts.h"
 #include "JITModule.h"
 #include "IROperator.h"
 #include "IRMatch.h"
@@ -17,6 +18,7 @@ namespace Internal {
 using std::vector;
 using std::string;
 
+using namespace Halide::ConciseCasts;
 using namespace llvm;
 
 CodeGen_X86::CodeGen_X86(Target t) : CodeGen_Posix(t) {
@@ -26,51 +28,7 @@ CodeGen_X86::CodeGen_X86(Target t) : CodeGen_Posix(t) {
     #endif
 
     user_assert(llvm_X86_enabled) << "llvm build not configured with X86 target enabled.\n";
-
-    #if !(WITH_NATIVE_CLIENT)
-    user_assert(t.os != Target::NaCl) << "llvm build not configured with native client enabled.\n";
-    #endif
 }
-
-Expr _i64(Expr e) {
-    return cast(Int(64, e.type().lanes()), e);
-}
-
-Expr _u64(Expr e) {
-    return cast(UInt(64, e.type().lanes()), e);
-}
-Expr _i32(Expr e) {
-    return cast(Int(32, e.type().lanes()), e);
-}
-
-Expr _u32(Expr e) {
-    return cast(UInt(32, e.type().lanes()), e);
-}
-
-Expr _i16(Expr e) {
-    return cast(Int(16, e.type().lanes()), e);
-}
-
-Expr _u16(Expr e) {
-    return cast(UInt(16, e.type().lanes()), e);
-}
-
-Expr _i8(Expr e) {
-    return cast(Int(8, e.type().lanes()), e);
-}
-
-Expr _u8(Expr e) {
-    return cast(UInt(8, e.type().lanes()), e);
-}
-
-Expr _f32(Expr e) {
-    return cast(Float(32, e.type().lanes()), e);
-}
-
-Expr _f64(Expr e) {
-    return cast(Float(64, e.type().lanes()), e);
-}
-
 
 namespace {
 
@@ -131,21 +89,17 @@ void CodeGen_X86::visit(const Sub *op) {
 }
 
 void CodeGen_X86::visit(const GT *op) {
-    Type t = op->a.type();
-    int bits = t.lanes() * t.bits();
-    if (t.lanes() == 1 || bits % 128 == 0) {
-        // LLVM is fine for native vector widths or scalars
-        CodeGen_Posix::visit(op);
-    } else {
+    if (op->type.is_vector()) {
         // Non-native vector widths get legalized poorly by llvm. We
         // split it up ourselves.
-        Value *a = codegen(op->a), *b = codegen(op->b);
 
+        Type t = op->a.type();
         int slice_size = 128 / t.bits();
-        if (target.has_feature(Target::AVX) && bits > 128) {
-            slice_size = 256 / t.bits();
+        if (slice_size < t.lanes()) {
+            slice_size = target.natural_vector_size(t);
         }
 
+        Value *a = codegen(op->a), *b = codegen(op->b);
         vector<Value *> result;
         for (int i = 0; i < op->type.lanes(); i += slice_size) {
             Value *sa = slice_vector(a, i, slice_size);
@@ -163,25 +117,24 @@ void CodeGen_X86::visit(const GT *op) {
 
         value = concat_vectors(result);
         value = slice_vector(value, 0, t.lanes());
+    } else {
+        CodeGen_Posix::visit(op);
     }
+
 }
 
 void CodeGen_X86::visit(const EQ *op) {
-    Type t = op->a.type();
-    int bits = t.lanes() * t.bits();
-    if (t.lanes() == 1 || bits % 128 == 0) {
-        // LLVM is fine for native vector widths or scalars
-        CodeGen_Posix::visit(op);
-    } else {
+    if (op->type.is_vector()) {
         // Non-native vector widths get legalized poorly by llvm. We
         // split it up ourselves.
-        Value *a = codegen(op->a), *b = codegen(op->b);
 
+        Type t = op->a.type();
         int slice_size = 128 / t.bits();
-        if (target.has_feature(Target::AVX) && bits > 128) {
-            slice_size = 256 / t.bits();
+        if (slice_size < t.lanes()) {
+            slice_size = target.natural_vector_size(t);
         }
 
+        Value *a = codegen(op->a), *b = codegen(op->b);
         vector<Value *> result;
         for (int i = 0; i < op->type.lanes(); i += slice_size) {
             Value *sa = slice_vector(a, i, slice_size);
@@ -197,6 +150,8 @@ void CodeGen_X86::visit(const EQ *op) {
 
         value = concat_vectors(result);
         value = slice_vector(value, 0, t.lanes());
+    } else {
+        CodeGen_Posix::visit(op);
     }
 }
 
@@ -217,51 +172,31 @@ void CodeGen_X86::visit(const NE *op) {
 }
 
 void CodeGen_X86::visit(const Select *op) {
-
-    // LLVM doesn't correctly use pblendvb for u8 vectors that aren't
-    // width 16, so we peephole optimize them to intrinsics.
-    struct Pattern {
-        string intrin;
-        Expr pattern;
-    };
-
-    static Pattern patterns[] = {
-        {"pblendvb_ult_i8x16", select(wild_u8x_ < wild_u8x_, wild_i8x_, wild_i8x_)},
-        {"pblendvb_ult_i8x16", select(wild_u8x_ < wild_u8x_, wild_u8x_, wild_u8x_)},
-        {"pblendvb_slt_i8x16", select(wild_i8x_ < wild_i8x_, wild_i8x_, wild_i8x_)},
-        {"pblendvb_slt_i8x16", select(wild_i8x_ < wild_i8x_, wild_u8x_, wild_u8x_)},
-        {"pblendvb_ule_i8x16", select(wild_u8x_ <= wild_u8x_, wild_i8x_, wild_i8x_)},
-        {"pblendvb_ule_i8x16", select(wild_u8x_ <= wild_u8x_, wild_u8x_, wild_u8x_)},
-        {"pblendvb_sle_i8x16", select(wild_i8x_ <= wild_i8x_, wild_i8x_, wild_i8x_)},
-        {"pblendvb_sle_i8x16", select(wild_i8x_ <= wild_i8x_, wild_u8x_, wild_u8x_)},
-        {"pblendvb_ne_i8x16", select(wild_u8x_ != wild_u8x_, wild_i8x_, wild_i8x_)},
-        {"pblendvb_ne_i8x16", select(wild_u8x_ != wild_u8x_, wild_u8x_, wild_u8x_)},
-        {"pblendvb_ne_i8x16", select(wild_i8x_ != wild_i8x_, wild_i8x_, wild_i8x_)},
-        {"pblendvb_ne_i8x16", select(wild_i8x_ != wild_i8x_, wild_i8x_, wild_i8x_)},
-        {"pblendvb_eq_i8x16", select(wild_u8x_ == wild_u8x_, wild_i8x_, wild_i8x_)},
-        {"pblendvb_eq_i8x16", select(wild_u8x_ == wild_u8x_, wild_u8x_, wild_u8x_)},
-        {"pblendvb_eq_i8x16", select(wild_i8x_ == wild_i8x_, wild_i8x_, wild_i8x_)},
-        {"pblendvb_eq_i8x16", select(wild_i8x_ == wild_i8x_, wild_i8x_, wild_i8x_)},
-        {"pblendvb_i8x16", select(wild_u1x_, wild_i8x_, wild_i8x_)},
-        {"pblendvb_i8x16", select(wild_u1x_, wild_u8x_, wild_u8x_)}
-    };
-
-    if (target.has_feature(Target::SSE41) &&
-        op->condition.type().is_vector() &&
-        op->type.bits() == 8 &&
-        op->type.lanes() != 16) {
-
-        vector<Expr> matches;
-        for (size_t i = 0; i < sizeof(patterns)/sizeof(patterns[0]); i++) {
-            if (expr_match(patterns[i].pattern, op, matches)) {
-                value = call_intrin(op->type, 16, patterns[i].intrin, matches);
-                return;
-            }
+    if (op->condition.type().is_vector()) {
+        // LLVM handles selects on vector conditions much better at native width
+        Value *cond = codegen(op->condition);
+        Value *true_val = codegen(op->true_value);
+        Value *false_val = codegen(op->false_value);
+        Type t = op->true_value.type();
+        int slice_size = 128 / t.bits();
+        if (slice_size < t.lanes()) {
+            slice_size = target.natural_vector_size(t);
         }
+
+        vector<Value *> result;
+        for (int i = 0; i < t.lanes(); i += slice_size) {
+            Value *st = slice_vector(true_val, i, slice_size);
+            Value *sf = slice_vector(false_val, i, slice_size);
+            Value *sc = slice_vector(cond, i, slice_size);
+            Value *slice_value = builder->CreateSelect(sc, st, sf);
+            result.push_back(slice_value);
+        }
+
+        value = concat_vectors(result);
+        value = slice_vector(value, 0, t.lanes());
+    } else {
+        CodeGen_Posix::visit(op);
     }
-
-    CodeGen_Posix::visit(op);
-
 }
 
 void CodeGen_X86::visit(const Cast *op) {
@@ -275,52 +210,64 @@ void CodeGen_X86::visit(const Cast *op) {
     vector<Expr> matches;
 
     struct Pattern {
-        bool needs_sse_41;
+        Target::Feature feature;
         bool wide_op;
         Type type;
+        int min_lanes;
         string intrin;
         Expr pattern;
     };
 
     static Pattern patterns[] = {
-        {false, true, Int(8, 16), "llvm.x86.sse2.padds.b",
-         _i8(clamp(wild_i16x_ + wild_i16x_, -128, 127))},
-        {false, true, Int(8, 16), "llvm.x86.sse2.psubs.b",
-         _i8(clamp(wild_i16x_ - wild_i16x_, -128, 127))},
-        {false, true, UInt(8, 16), "llvm.x86.sse2.paddus.b",
-         _u8(min(wild_u16x_ + wild_u16x_, 255))},
-        {false, true, UInt(8, 16), "llvm.x86.sse2.psubus.b",
-         _u8(max(wild_i16x_ - wild_i16x_, 0))},
-        {false, true, Int(16, 8), "llvm.x86.sse2.padds.w",
-         _i16(clamp(wild_i32x_ + wild_i32x_, -32768, 32767))},
-        {false, true, Int(16, 8), "llvm.x86.sse2.psubs.w",
-         _i16(clamp(wild_i32x_ - wild_i32x_, -32768, 32767))},
-        {false, true, UInt(16, 8), "llvm.x86.sse2.paddus.w",
-         _u16(min(wild_u32x_ + wild_u32x_, 65535))},
-        {false, true, UInt(16, 8), "llvm.x86.sse2.psubus.w",
-         _u16(max(wild_i32x_ - wild_i32x_, 0))},
-        {false, true, Int(16, 8), "llvm.x86.sse2.pmulh.w",
-         _i16((wild_i32x_ * wild_i32x_) / 65536)},
-        {false, true, UInt(16, 8), "llvm.x86.sse2.pmulhu.w",
-         _u16((wild_u32x_ * wild_u32x_) / 65536)},
-        {false, true, UInt(8, 16), "llvm.x86.sse2.pavg.b",
-         _u8(((wild_u16x_ + wild_u16x_) + 1) / 2)},
-        {false, true, UInt(16, 8), "llvm.x86.sse2.pavg.w",
-         _u16(((wild_u32x_ + wild_u32x_) + 1) / 2)},
-        {false, false, Int(16, 8), "packssdwx8",
-         _i16(clamp(wild_i32x_, -32768, 32767))},
-        {false, false, Int(8, 16), "packsswbx16",
-         _i8(clamp(wild_i16x_, -128, 127))},
-        {false, false, UInt(8, 16), "packuswbx16",
-         _u8(clamp(wild_i16x_, 0, 255))},
-        {true, false, UInt(16, 8), "packusdwx8",
-         _u16(clamp(wild_i32x_, 0, 65535))}
+        {Target::FeatureEnd, true, Int(8, 16), 0, "llvm.x86.sse2.padds.b",
+         i8_sat(wild_i16x_ + wild_i16x_)},
+        {Target::FeatureEnd, true, Int(8, 16), 0, "llvm.x86.sse2.psubs.b",
+         i8_sat(wild_i16x_ - wild_i16x_)},
+        {Target::FeatureEnd, true, UInt(8, 16), 0, "llvm.x86.sse2.paddus.b",
+         u8_sat(wild_u16x_ + wild_u16x_)},
+        {Target::FeatureEnd, true, UInt(8, 16), 0, "llvm.x86.sse2.psubus.b",
+         u8(max(wild_i16x_ - wild_i16x_, 0))},
+        {Target::FeatureEnd, true, Int(16, 8), 0, "llvm.x86.sse2.padds.w",
+         i16_sat(wild_i32x_ + wild_i32x_)},
+        {Target::FeatureEnd, true, Int(16, 8), 0, "llvm.x86.sse2.psubs.w",
+         i16_sat(wild_i32x_ - wild_i32x_)},
+        {Target::FeatureEnd, true, UInt(16, 8), 0, "llvm.x86.sse2.paddus.w",
+         u16_sat(wild_u32x_ + wild_u32x_)},
+        {Target::FeatureEnd, true, UInt(16, 8), 0, "llvm.x86.sse2.psubus.w",
+         u16(max(wild_i32x_ - wild_i32x_, 0))},
+
+        // Only use the avx2 version if we have > 8 lanes
+        {Target::AVX2, true, Int(16, 16), 9, "llvm.x86.avx2.pmulh.w",
+         i16((wild_i32x_ * wild_i32x_) / 65536)},
+        {Target::AVX2, true, UInt(16, 16), 9, "llvm.x86.avx2.pmulhu.w",
+         u16((wild_u32x_ * wild_u32x_) / 65536)},
+
+        {Target::FeatureEnd, true, Int(16, 8), 0, "llvm.x86.sse2.pmulh.w",
+         i16((wild_i32x_ * wild_i32x_) / 65536)},
+        {Target::FeatureEnd, true, UInt(16, 8), 0, "llvm.x86.sse2.pmulhu.w",
+         u16((wild_u32x_ * wild_u32x_) / 65536)},
+        {Target::FeatureEnd, true, UInt(8, 16), 0, "llvm.x86.sse2.pavg.b",
+         u8(((wild_u16x_ + wild_u16x_) + 1) / 2)},
+        {Target::FeatureEnd, true, UInt(16, 8), 0, "llvm.x86.sse2.pavg.w",
+         u16(((wild_u32x_ + wild_u32x_) + 1) / 2)},
+        {Target::FeatureEnd, false, Int(16, 8), 0, "packssdwx8",
+         i16_sat(wild_i32x_)},
+        {Target::FeatureEnd, false, Int(8, 16), 0, "packsswbx16",
+         i8_sat(wild_i16x_)},
+        {Target::FeatureEnd, false, UInt(8, 16), 0, "packuswbx16",
+         u8_sat(wild_i16x_)},
+        {Target::SSE41, false, UInt(16, 8), 0, "packusdwx8",
+         u16_sat(wild_i32x_)}
     };
 
     for (size_t i = 0; i < sizeof(patterns)/sizeof(patterns[0]); i++) {
         const Pattern &pattern = patterns[i];
 
-        if (!target.has_feature(Target::SSE41) && pattern.needs_sse_41) {
+        if (!target.has_feature(pattern.feature)) {
+            continue;
+        }
+
+        if (op->type.lanes() < pattern.min_lanes) {
             continue;
         }
 
@@ -373,7 +320,12 @@ Expr CodeGen_X86::mulhi_shr(Expr a, Expr b, int shr) {
     Type ty = a.type();
     if (ty.is_vector() && ty.bits() == 16) {
         // We can use pmulhu for this op.
-        Expr p = _u16(_u32(a) * _u32(b) / 65536);
+        Expr p;
+        if (ty.is_uint()) {
+            p = u16(u32(a) * u32(b) / 65536);
+        } else {
+            p = i16(i32(a) * i32(b) / 65536);
+        }
         if (shr) {
             p = p >> shr;
         }
@@ -383,7 +335,7 @@ Expr CodeGen_X86::mulhi_shr(Expr a, Expr b, int shr) {
 }
 
 void CodeGen_X86::visit(const Min *op) {
-    if (!op->type.is_vector()) {
+    if (LLVM_VERSION >= 39 || op->type.is_scalar()) {
         CodeGen_Posix::visit(op);
         return;
     }
@@ -401,28 +353,13 @@ void CodeGen_X86::visit(const Min *op) {
         value = call_intrin(op->type, 4, "llvm.x86.sse41.pminsd", {op->a, op->b});
     } else if (use_sse_41 && op->type.element_of() == UInt(32)) {
         value = call_intrin(op->type, 4, "llvm.x86.sse41.pminud", {op->a, op->b});
-    } else if (op->type.element_of() == Float(32)) {
-        if (op->type.lanes() % 8 == 0 && target.has_feature(Target::AVX)) {
-            // This condition should possibly be > 4, rather than a
-            // multiple of 8, but shuffling in undefs seems to work
-            // poorly with avx.
-            value = call_intrin(op->type, 8, "min_f32x8", {op->a, op->b});
-        } else {
-            value = call_intrin(op->type, 4, "min_f32x4", {op->a, op->b});
-        }
-    } else if (op->type.element_of() == Float(64)) {
-         if (op->type.lanes() % 4 == 0 && target.has_feature(Target::AVX)) {
-            value = call_intrin(op->type, 4, "min_f64x4", {op->a, op->b});
-        } else {
-            value = call_intrin(op->type, 2, "min_f64x2", {op->a, op->b});
-        }
     } else {
         CodeGen_Posix::visit(op);
     }
 }
 
 void CodeGen_X86::visit(const Max *op) {
-    if (!op->type.is_vector()) {
+    if (LLVM_VERSION >= 39 || op->type.is_scalar()) {
         CodeGen_Posix::visit(op);
         return;
     }
@@ -440,25 +377,14 @@ void CodeGen_X86::visit(const Max *op) {
         value = call_intrin(op->type, 4, "llvm.x86.sse41.pmaxsd", {op->a, op->b});
     } else if (use_sse_41 && op->type.element_of() == UInt(32)) {
         value = call_intrin(op->type, 4, "llvm.x86.sse41.pmaxud", {op->a, op->b});
-    } else if (op->type.element_of() == Float(32)) {
-        if (op->type.lanes() % 8 == 0 && target.has_feature(Target::AVX)) {
-            value = call_intrin(op->type, 8, "max_f32x8", {op->a, op->b});
-        } else {
-            value = call_intrin(op->type, 4, "max_f32x4", {op->a, op->b});
-        }
-    } else if (op->type.element_of() == Float(64)) {
-      if (op->type.lanes() % 4 == 0 && target.has_feature(Target::AVX)) {
-            value = call_intrin(op->type, 4, "max_f64x4", {op->a, op->b});
-        } else {
-            value = call_intrin(op->type, 2, "max_f64x2", {op->a, op->b});
-        }
     } else {
         CodeGen_Posix::visit(op);
     }
 }
 
 void CodeGen_X86::visit(const Call *op) {
-    if (target.has_feature(Target::AVX2) &&
+    constexpr bool need_workaround = LLVM_VERSION < 40;
+    if (need_workaround && target.has_feature(Target::AVX2) &&
         op->is_intrinsic(Call::shift_left) &&
         op->type.is_vector() &&
         op->type.is_int() &&
@@ -467,6 +393,7 @@ void CodeGen_X86::visit(const Call *op) {
 
         // Left shift of negative integers is broken in some cases in
         // avx2: https://llvm.org/bugs/show_bug.cgi?id=27730
+        // Bug was fixed in LLVM r271796
 
         // It needs to be normalized to a 32-bit shift, because avx2
         // doesn't have a narrower version than that. We'll just do
@@ -483,6 +410,11 @@ void CodeGen_X86::visit(const Call *op) {
 }
 
 string CodeGen_X86::mcpu() const {
+    #if LLVM_VERSION >= 40
+    if (target.has_feature(Target::AVX512_Cannonlake)) return "cannonlake";
+    if (target.has_feature(Target::AVX512_Skylake)) return "skylake-avx512";
+    if (target.has_feature(Target::AVX512_KNL)) return "knl";
+    #endif
     if (target.has_feature(Target::AVX2)) return "haswell";
     if (target.has_feature(Target::AVX)) return "corei7-avx";
     // We want SSE4.1 but not SSE4.2, hence "penryn" rather than "corei7"
@@ -494,8 +426,6 @@ string CodeGen_X86::mcpu() const {
 string CodeGen_X86::mattrs() const {
     std::string features;
     std::string separator;
-    #if LLVM_VERSION >= 35
-    // These attrs only exist in llvm 3.5+
     if (target.has_feature(Target::FMA)) {
         features += "+fma";
         separator = ",";
@@ -508,6 +438,24 @@ string CodeGen_X86::mattrs() const {
         features += separator + "+f16c";
         separator = ",";
     }
+    #if LLVM_VERSION >= 40
+    if (target.has_feature(Target::AVX512) ||
+        target.has_feature(Target::AVX512_KNL) ||
+        target.has_feature(Target::AVX512_Skylake) ||
+        target.has_feature(Target::AVX512_Cannonlake)) {
+        features += separator + "+avx512f,+avx512cd";
+        separator = ",";
+        if (target.has_feature(Target::AVX512_KNL)) {
+            features += ",+avx512pf,+avx512er";
+        }
+        if (target.has_feature(Target::AVX512_Skylake) ||
+            target.has_feature(Target::AVX512_Cannonlake)) {
+            features += ",+avx512vl,+avx512bw,+avx512dq";
+        }
+        if (target.has_feature(Target::AVX512_Cannonlake)) {
+            features += ",+avx512ifma,+avx512vbmi";
+        }
+    }
     #endif
     return features;
 }
@@ -517,7 +465,13 @@ bool CodeGen_X86::use_soft_float_abi() const {
 }
 
 int CodeGen_X86::native_vector_bits() const {
-    if (target.has_feature(Target::AVX)) {
+    if (target.has_feature(Target::AVX512) ||
+        target.has_feature(Target::AVX512_Skylake) ||
+        target.has_feature(Target::AVX512_KNL) ||
+        target.has_feature(Target::AVX512_Cannonlake)) {
+        return 512;
+    } else if (target.has_feature(Target::AVX) ||
+               target.has_feature(Target::AVX2)) {
         return 256;
     } else {
         return 128;

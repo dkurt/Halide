@@ -42,20 +42,14 @@ void Closure::visit(const Load *op) {
     op->index.accept(this);
     if (!ignore.contains(op->name)) {
         debug(3) << "Adding buffer " << op->name << " to closure\n";
-        BufferRef & ref = buffers[op->name];
-        ref.type = op->type; // TODO: Validate type is the same as existing refs?
+        Buffer & ref = buffers[op->name];
+        ref.type = op->type.element_of(); // TODO: Validate type is the same as existing refs?
         ref.read = true;
 
         // If reading an image/buffer, compute the size.
         if (op->image.defined()) {
+            ref.size = op->image.size_in_bytes();
             ref.dimensions = op->image.dimensions();
-            // The size is the offset of one beyond the last element.
-            // TODO(abadams): replace this with halide_buffer_t::size_in_bytes.
-            ref.size = 1;
-            for (int i = 0; i < op->image.dimensions(); i++) {
-                ref.size += (op->image.extent(i) - 1)*op->image.stride(i);
-            }
-            ref.size *= op->image.type().bytes();
         }
     } else {
         debug(3) << "Not adding " << op->name << " to closure\n";
@@ -67,8 +61,8 @@ void Closure::visit(const Store *op) {
     op->value.accept(this);
     if (!ignore.contains(op->name)) {
         debug(3) << "Adding buffer " << op->name << " to closure\n";
-        BufferRef & ref = buffers[op->name];
-        ref.type = op->value.type(); // TODO: Validate type is the same as existing refs?
+        Buffer & ref = buffers[op->name];
+        ref.type = op->value.type().element_of(); // TODO: Validate type is the same as existing refs?
         // TODO: do we need to set ref.dimensions?
         ref.write = true;
     } else {
@@ -103,7 +97,7 @@ vector<string> Closure::names() const {
         debug(2) << "vars:  " << i.first << "\n";
         res.push_back(i.first);
     }
-    for (const pair<string, BufferRef> &i : buffers) {
+    for (const pair<string, Buffer> &i : buffers) {
         debug(2) << "buffers: " << i.first << "\n";
         res.push_back(i.first + ".host");
         res.push_back(i.first + ".buffer");

@@ -5,6 +5,8 @@
 
 #include "IROperator.h"
 #include "IRPrinter.h"
+#include "IREquality.h"
+#include "Var.h"
 #include "Debug.h"
 #include "CSE.h"
 
@@ -205,6 +207,11 @@ bool is_negative_negatable_const(Expr e, Type T) {
 
 bool is_negative_negatable_const(Expr e) {
     return is_negative_negatable_const(e, e.type());
+}
+
+bool is_undef(Expr e) {
+    if (const Call *c = e.as<Call>()) return c->is_intrinsic(Call::undef);
+    return false;
 }
 
 bool is_zero(Expr e) {
@@ -585,6 +592,19 @@ Expr raise_to_integer_power(Expr e, int64_t p) {
     return result;
 }
 
+void split_into_ands(Expr cond, std::vector<Expr> &result) {
+    if (!cond.defined()) {
+        return;
+    }
+    internal_assert(cond.type().is_bool()) << "Should be a boolean condition\n";
+    if (const And *a = cond.as<And>()) {
+        split_into_ands(a->a, result);
+        split_into_ands(a->b, result);
+    } else if (!is_one(cond)) {
+        result.push_back(cond);
+    }
+}
+
 }
 
 Expr fast_log(Expr x) {
@@ -639,23 +659,28 @@ Expr fast_exp(Expr x_full) {
     result = common_subexpression_elimination(result);
     return result;
 }
+Expr stringify(const std::vector<Expr> &args) {
+    return Internal::Call::make(type_of<const char *>(), Internal::Call::stringify,
+                                args, Internal::Call::Intrinsic);
+}
 
-Expr print(const std::vector<Expr> &args) {
+Expr combine_strings(const std::vector<Expr> &args) {
     // Insert spaces between each expr.
-    std::vector<Expr> print_args(args.size()*2);
+    std::vector<Expr> strings(args.size()*2);
     for (size_t i = 0; i < args.size(); i++) {
-        print_args[i*2] = args[i];
+        strings[i*2] = args[i];
         if (i < args.size() - 1) {
-            print_args[i*2+1] = Expr(" ");
+            strings[i*2+1] = Expr(" ");
         } else {
-            print_args[i*2+1] = Expr("\n");
+            strings[i*2+1] = Expr("\n");
         }
     }
 
-    // Concat all the args at runtime using stringify.
-    Expr combined_string =
-        Internal::Call::make(type_of<const char *>(), Internal::Call::stringify,
-                             print_args, Internal::Call::Intrinsic);
+    return stringify(strings);
+}
+
+Expr print(const std::vector<Expr> &args) {
+    Expr combined_string = combine_strings(args);
 
     // Call halide_print.
     Expr print_call =
@@ -677,12 +702,73 @@ Expr print_when(Expr condition, const std::vector<Expr> &args) {
                                 Internal::Call::PureIntrinsic);
 }
 
-Expr memoize_tag(Expr result, const std::vector<Expr> &cache_key_values) {
+Expr require(Expr condition, const std::vector<Expr> &args) {
+    user_assert(condition.defined()) << "Require of undefined condition\n";
+    user_assert(condition.type().is_bool()) << "Require condition must be a boolean type\n";
+    user_assert(args.at(0).defined()) << "Require of undefined value\n";
+
+    Expr requirement_failed_error =
+        Internal::Call::make(Int(32),
+                             "halide_error_requirement_failed",
+                             {stringify({condition}), combine_strings(args)},
+                             Internal::Call::Extern);
+    // Just cast to the type expected by the success path: since the actual
+    // value will never be used in the failure branch, it doesn't really matter
+    // what it is, but the type must match.
+    Expr failure_value = cast(args[0].type(), requirement_failed_error);
+    return Internal::Call::make(args[0].type(),
+                                Internal::Call::if_then_else,
+                                {likely(condition), args[0], failure_value},
+                                Internal::Call::PureIntrinsic);
+}
+
+namespace Internal {
+
+Expr memoize_tag_helper(Expr result, const std::vector<Expr> &cache_key_values) {
     std::vector<Expr> args;
     args.push_back(result);
     args.insert(args.end(), cache_key_values.begin(), cache_key_values.end());
     return Internal::Call::make(result.type(), Internal::Call::memoize_expr,
                                 args, Internal::Call::PureIntrinsic);
+}
+
+}  // namespace Internal
+
+Expr saturating_cast(Type t, Expr e) {
+    // For float to float, guarantee infinities are always pinned to range.
+    if (t.is_float() && e.type().is_float()) {
+        if (t.bits() < e.type().bits()) {
+            e = cast(t, clamp(e, t.min(), t.max()));
+        } else {
+            e = clamp(cast(t, e), t.min(), t.max());
+        }
+    } else if (e.type() != t) {
+        // Limits for Int(2^n) or UInt(2^n) are not exactly representable in Float(2^n)
+        if (e.type().is_float() && !t.is_float() && t.bits() >= e.type().bits()) {
+            e = max(e, t.min()); // min values turn out to be always representable
+
+            // This line depends on t.max() rounding upward, which should always
+            // be the case as it is one less than a representable value, thus
+            // the one larger is always the closest.
+            e = select(e >= cast(e.type(), t.max()), t.max(), cast(t, e));
+        } else {
+            Expr min_bound;
+            if (!e.type().is_uint()) {
+                min_bound = lossless_cast(e.type(), t.min());
+            }
+            Expr max_bound = lossless_cast(e.type(), t.max());
+
+            if (min_bound.defined() && max_bound.defined()) {
+                e = clamp(e, min_bound, max_bound);
+            } else if (min_bound.defined()) {
+                e = max(e, min_bound);
+            } else if (max_bound.defined()) {
+                e = min(e, max_bound);
+            }
+            e = cast(t, e);
+        }
+    }
+    return e;
 }
 
 }

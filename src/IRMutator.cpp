@@ -170,15 +170,11 @@ void IRMutator::visit(const AssertStmt *op) {
 }
 
 void IRMutator::visit(const ProducerConsumer *op) {
-    Stmt produce = mutate(op->produce);
-    Stmt update = mutate(op->update);
-    Stmt consume = mutate(op->consume);
-    if (produce.same_as(op->produce) &&
-        update.same_as(op->update) &&
-        consume.same_as(op->consume)) {
+    Stmt body = mutate(op->body);
+    if (body.same_as(op->body)) {
         stmt = op;
     } else {
-        stmt = ProducerConsumer::make(op->name, produce, update, consume);
+        stmt = ProducerConsumer::make(op->name, op->is_producer, body);
     }
 }
 
@@ -317,6 +313,27 @@ void IRMutator::visit(const Evaluate *op) {
     } else {
         stmt = Evaluate::make(v);
     }
+}
+
+
+Stmt IRGraphMutator::mutate(Stmt s) {
+    auto iter = stmt_replacements.find(s);
+    if (iter != stmt_replacements.end()) {
+        return iter->second;
+    }
+    Stmt new_s = IRMutator::mutate(s);
+    stmt_replacements[s] = new_s;
+    return new_s;
+}
+
+Expr IRGraphMutator::mutate(Expr e) {
+    auto iter = expr_replacements.find(e);
+    if (iter != expr_replacements.end()) {
+        return iter->second;
+    }
+    Expr new_e = IRMutator::mutate(e);
+    expr_replacements[e] = new_e;
+    return new_e;
 }
 
 }

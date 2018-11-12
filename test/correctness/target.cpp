@@ -7,10 +7,10 @@ int main(int argc, char **argv) {
     Target t1, t2;
     std::string ts;
 
-    // parse_target_string("") should be exactly like get_host_target().
+    // Target("") should be exactly like get_host_target().
     t1 = get_host_target();
-    t2 = parse_target_string("");
-    if (t2 != t1){
+    t2 = Target("");
+    if (t2 != t1) {
        printf("parse_from_string failure: %s\n", ts.c_str());
        return -1;
     }
@@ -21,13 +21,13 @@ int main(int argc, char **argv) {
        printf("to_string failure: %s\n", ts.c_str());
        return -1;
     }
-    // We expect from_string() to fail, since it doesn't know about 'unknown'
-    if (t2.from_string(ts)) {
-       printf("from_string failure: %s\n", ts.c_str());
+    if (!Target::validate_target_string(ts)) {
+       printf("validate_target_string failure: %s\n", ts.c_str());
        return -1;
     }
+    t2 = Target(ts);
     if (t2 != t1) {
-       printf("compare failure: %s %s\n", t1.to_string().c_str(), t2.to_string().c_str());
+       printf("roundtrip failure: %s\n", ts.c_str());
        return -1;
     }
 
@@ -38,79 +38,57 @@ int main(int argc, char **argv) {
        printf("to_string failure: %s\n", ts.c_str());
        return -1;
     }
-    if (!t2.from_string(ts)) {
-       printf("from_string failure: %s\n", ts.c_str());
-       return -1;
-    }
-    if (t2 != t1) {
-       printf("compare failure: %s %s\n", t1.to_string().c_str(), t2.to_string().c_str());
+    if (!Target::validate_target_string(ts)) {
+       printf("validate_target_string failure: %s\n", ts.c_str());
        return -1;
     }
 
     // Full specification round-trip, crazy features
     t1 = Target(Target::Android, Target::ARM, 32,
                 {Target::JIT, Target::SSE41, Target::AVX, Target::AVX2,
-                 Target::CUDA, Target::OpenCL, Target::OpenGL, Target::OpenGLCompute, Target::Renderscript,
+                 Target::CUDA, Target::OpenCL, Target::OpenGL, Target::OpenGLCompute,
                  Target::Debug});
     ts = t1.to_string();
-    if (ts != "arm-32-android-avx-avx2-cuda-debug-jit-opencl-opengl-openglcompute-renderscript-sse41") {
+    if (ts != "arm-32-android-avx-avx2-cuda-debug-jit-opencl-opengl-openglcompute-sse41") {
        printf("to_string failure: %s\n", ts.c_str());
        return -1;
     }
-    if (!t2.from_string(ts)) {
-       printf("from_string failure: %s\n", ts.c_str());
-       return -1;
-    }
-    if (t2 != t1) {
-       printf("compare failure: %s %s\n", t1.to_string().c_str(), t2.to_string().c_str());
-       return -1;
-    }
-
-    // Full specification round-trip, PNacl
-    t1 = Target(Target::NaCl, Target::PNaCl, 32);
-    ts = t1.to_string();
-    if (ts != "pnacl-32-nacl") {
-       printf("to_string failure: %s\n", ts.c_str());
-       return -1;
-    }
-    if (!t2.from_string(ts)) {
-       printf("from_string failure: %s\n", ts.c_str());
-       return -1;
-    }
-    if (t2 != t1) {
-       printf("compare failure: %s %s\n", t1.to_string().c_str(), t2.to_string().c_str());
-       return -1;
-    }
-
-    // Partial specification merging: os,arch,bits get replaced; features get combined
-    t2 = Target(Target::Linux, Target::X86, 64, {Target::OpenCL});
-    if (!t2.merge_string("x86-32-sse41")) {
-       printf("merge_string failure: %s\n", ts.c_str());
-       return -1;
-    }
-    // expect 32 (not 64), and both sse41 and opencl
-    if (t2.to_string() != "x86-32-linux-opencl-sse41") {
-       printf("merge_string: %s\n", t2.to_string().c_str());
+    if (!Target::validate_target_string(ts)) {
+       printf("validate_target_string failure: %s\n", ts.c_str());
        return -1;
     }
 
     // Expected failures:
     ts = "host-unknowntoken";
-    if (t2.from_string(ts)) {
-       printf("from_string failure: %s\n", ts.c_str());
-       return -1;
+    if (Target::validate_target_string(ts)) {
+        printf("validate_target_string failure: %s\n", ts.c_str());
+        return -1;
     }
 
     ts = "x86-23";
-    if (t2.from_string(ts)) {
-       printf("from_string failure: %s\n", ts.c_str());
+    if (Target::validate_target_string(ts)) {
+       printf("validate_target_string failure: %s\n", ts.c_str());
+       return -1;
+    }
+
+    // bits == 0 is allowed only if arch_unknown and os_unknown are specified,
+    // and no features are set
+    ts = "x86-0";
+    if (Target::validate_target_string(ts)) {
+       printf("validate_target_string failure: %s\n", ts.c_str());
+       return -1;
+    }
+
+    ts = "0-arch_unknown-os_unknown-sse41";
+    if (Target::validate_target_string(ts)) {
+       printf("validate_target_string failure: %s\n", ts.c_str());
        return -1;
     }
 
     // "host" is only supported as the first token
     ts = "opencl-host";
-    if (t2.from_string(ts)) {
-       printf("from_string failure: %s\n", ts.c_str());
+    if (Target::validate_target_string(ts)) {
+       printf("validate_target_string failure: %s\n", ts.c_str());
        return -1;
     }
 

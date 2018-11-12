@@ -11,13 +11,18 @@
 #include "Bounds.h"
 #include "BoundsInference.h"
 #include "CSE.h"
+#include "CanonicalizeGPUVars.h"
 #include "Debug.h"
 #include "DebugToFile.h"
+#include "DeepCopy.h"
 #include "Deinterleave.h"
 #include "EarlyFree.h"
 #include "FindCalls.h"
+#include "Func.h"
 #include "Function.h"
 #include "FuseGPUThreadLoops.h"
+#include "FuzzFloatStores.h"
+#include "HexagonOffload.h"
 #include "InjectHostDevBufferCopies.h"
 #include "InjectImageIntrinsics.h"
 #include "InjectOpenGLIntrinsics.h"
@@ -25,8 +30,10 @@
 #include "IRMutator.h"
 #include "IROperator.h"
 #include "IRPrinter.h"
+#include "LoopCarry.h"
 #include "Memoization.h"
 #include "PartitionLoops.h"
+#include "Prefetch.h"
 #include "Profiling.h"
 #include "Qualify.h"
 #include "RealizationOrder.h"
@@ -38,6 +45,8 @@
 #include "SkipStages.h"
 #include "SlidingWindow.h"
 #include "Simplify.h"
+#include "SimplifySpecializations.h"
+#include "SplitTuples.h"
 #include "StorageFlattening.h"
 #include "StorageFolding.h"
 #include "Substitute.h"
@@ -59,26 +68,44 @@ using std::string;
 using std::vector;
 using std::map;
 
-Stmt lower(vector<Function> outputs, const string &pipeline_name, const Target &t, const vector<IRMutator *> &custom_passes) {
+Stmt lower(const vector<Function> &output_funcs, const string &pipeline_name,
+           const Target &t, const vector<IRMutator *> &custom_passes) {
 
     // Compute an environment
     map<string, Function> env;
-    for (Function f : outputs) {
+    for (Function f : output_funcs) {
         map<string, Function> more_funcs = find_transitive_calls(f);
         env.insert(more_funcs.begin(), more_funcs.end());
     }
 
-    // Create a deep-copy of the entire graph of Funcs and substitute in wrapper Funcs.
-    std::tie(outputs, env) = wrap_func_calls(outputs, env);
+    // Create a deep-copy of the entire graph of Funcs.
+    vector<Function> outputs;
+    std::tie(outputs, env) = deep_copy(output_funcs, env);
+
+    // Output functions should all be computed and stored at root.
+    for (Function f: outputs) {
+        Func(f).compute_root().store_root();
+    }
+
+    // Substitute in wrapper Funcs
+    env = wrap_func_calls(env);
 
     // Compute a realization order
     vector<string> order = realization_order(outputs, env);
+
+    // Try to simplify the RHS/LHS of a function definition by propagating its
+    // specializations' conditions
+    simplify_specializations(env);
 
     bool any_memoized = false;
 
     debug(1) << "Creating initial loop nests...\n";
     Stmt s = schedule_functions(outputs, order, env, t, any_memoized);
     debug(2) << "Lowering after creating initial loop nests:\n" << s << '\n';
+
+    debug(1) << "Canonicalizing GPU var names...\n";
+    s = canonicalize_gpu_vars(s);
+    debug(2) << "Lowering after canonicalizing GPU var names:\n" << s << '\n';
 
     if (any_memoized) {
         debug(1) << "Injecting memoization...\n";
@@ -87,6 +114,10 @@ Stmt lower(vector<Function> outputs, const string &pipeline_name, const Target &
     } else {
         debug(1) << "Skipping injecting memoization...\n";
     }
+
+    debug(1) << "Injecting prefetches...\n";
+    s = inject_prefetch(s, env);
+    debug(2) << "Lowering after injecting prefetches:\n" << s << "\n\n";
 
     debug(1) << "Injecting tracing...\n";
     s = inject_tracing(s, pipeline_name, env, outputs);
@@ -111,7 +142,7 @@ Stmt lower(vector<Function> outputs, const string &pipeline_name, const Target &
     // can't simplify statements from here until we fix them up. (We
     // can still simplify Exprs).
     debug(1) << "Performing computation bounds inference...\n";
-    s = bounds_inference(s, outputs, order, env, func_bounds);
+    s = bounds_inference(s, outputs, order, env, func_bounds, t);
     debug(2) << "Lowering after computation bounds inference:\n" << s << '\n';
 
     debug(1) << "Performing sliding window optimization...\n";
@@ -149,14 +180,18 @@ Stmt lower(vector<Function> outputs, const string &pipeline_name, const Target &
     s = skip_stages(s, order);
     debug(2) << "Lowering after dynamically skipping stages:\n" << s << "\n\n";
 
-    if (t.has_feature(Target::OpenGL) || t.has_feature(Target::Renderscript)) {
+    debug(1) << "Destructuring tuple-valued realizations...\n";
+    s = split_tuples(s, env);
+    debug(2) << "Lowering after destructuring tuple-valued realizations:\n" << s << "\n\n";
+
+    if (t.has_feature(Target::OpenGL)) {
         debug(1) << "Injecting image intrinsics...\n";
         s = inject_image_intrinsics(s, env);
         debug(2) << "Lowering after image intrinsics:\n" << s << "\n\n";
     }
 
     debug(1) << "Performing storage flattening...\n";
-    s = storage_flattening(s, outputs, env);
+    s = storage_flattening(s, outputs, env, t);
     debug(2) << "Lowering after storage flattening:\n" << s << "\n\n";
 
     if (any_memoized) {
@@ -170,7 +205,7 @@ Stmt lower(vector<Function> outputs, const string &pipeline_name, const Target &
     if (t.has_gpu_feature() ||
         t.has_feature(Target::OpenGLCompute) ||
         t.has_feature(Target::OpenGL) ||
-        t.has_feature(Target::Renderscript)) {
+        (t.arch != Target::Hexagon && (t.features_any_of({Target::HVX_64, Target::HVX_128})))) {
         debug(1) << "Selecting a GPU API for GPU loops...\n";
         s = select_gpu_api(s, t);
         debug(2) << "Lowering after selecting a GPU API:\n" << s << "\n\n";
@@ -187,8 +222,7 @@ Stmt lower(vector<Function> outputs, const string &pipeline_name, const Target &
     }
 
     if (t.has_gpu_feature() ||
-        t.has_feature(Target::OpenGLCompute) ||
-        t.has_feature(Target::Renderscript)) {
+        t.has_feature(Target::OpenGLCompute)) {
         debug(1) << "Injecting per-block gpu synchronization...\n";
         s = fuse_gpu_thread_loops(s);
         debug(2) << "Lowering after injecting per-block gpu synchronization:\n" << s << "\n\n";
@@ -206,7 +240,7 @@ Stmt lower(vector<Function> outputs, const string &pipeline_name, const Target &
     debug(2) << "Lowering after unrolling:\n" << s << "\n\n";
 
     debug(1) << "Vectorizing...\n";
-    s = vectorize_loops(s);
+    s = vectorize_loops(s, t);
     s = simplify(s);
     debug(2) << "Lowering after vectorizing:\n" << s << "\n\n";
 
@@ -231,7 +265,13 @@ Stmt lower(vector<Function> outputs, const string &pipeline_name, const Target &
     if (t.has_feature(Target::Profile)) {
         debug(1) << "Injecting profiling...\n";
         s = inject_profiling(s, pipeline_name);
-        debug(2) << "Lowering after injecting profiling:\n" << s << '\n';
+        debug(2) << "Lowering after injecting profiling:\n" << s << "\n\n";
+    }
+
+    if (t.has_feature(Target::FuzzFloatStores)) {
+        debug(1) << "Fuzzing floating point stores...\n";
+        s = fuzz_float_stores(s);
+        debug(2) << "Lowering after fuzzing floating point stores:\n" << s << "\n\n";
     }
 
     debug(1) << "Simplifying...\n";
@@ -251,6 +291,10 @@ Stmt lower(vector<Function> outputs, const string &pipeline_name, const Target &
     s = remove_trivial_for_loops(s);
     s = simplify(s);
     debug(1) << "Lowering after final simplification:\n" << s << "\n\n";
+
+    debug(1) << "Splitting off Hexagon offload...\n";
+    s = inject_hexagon_rpc(s, t);
+    debug(2) << "Lowering after splitting off Hexagon offload:\n" << s << '\n';
 
     if (!custom_passes.empty()) {
         for (size_t i = 0; i < custom_passes.size(); i++) {

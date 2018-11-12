@@ -5,15 +5,25 @@
  * Defines internal classes related to Reduction Domains
  */
 
-#include "IR.h"
+#include "Expr.h"
 
 namespace Halide {
 namespace Internal {
+
+class IRMutator;
 
 /** A single named dimension of a reduction domain */
 struct ReductionVariable {
     std::string var;
     Expr min, extent;
+
+    /** This lets you use a ReductionVariable as a key in a map of the form
+     * map<ReductionVariable, Foo, ReductionVariable::Compare> */
+    struct Compare {
+        bool operator()(const ReductionVariable &a, const ReductionVariable &b) const {
+            return a.var < b.var;
+        }
+    };
 };
 
 struct ReductionDomainContents;
@@ -23,6 +33,15 @@ struct ReductionDomainContents;
 class ReductionDomain {
     IntrusivePtr<ReductionDomainContents> contents;
 public:
+    /** This lets you use a ReductionDomain as a key in a map of the form
+     * map<ReductionDomain, Foo, ReductionDomain::Compare> */
+    struct Compare {
+        bool operator()(const ReductionDomain &a, const ReductionDomain &b) const {
+            internal_assert(a.contents.defined() && b.contents.defined());
+            return a.contents < b.contents;
+        }
+    };
+
     /** Construct a new nullptr reduction domain */
     ReductionDomain() : contents(nullptr) {}
 
@@ -72,6 +91,10 @@ public:
     /** Check if a RDom has been frozen. If so, it is an error to add new
      * predicates. */
     EXPORT bool frozen() const;
+
+    /** Pass an IRVisitor through to all Exprs referenced in the
+     * ReductionDomain. */
+    void accept(IRVisitor *) const;
 
     /** Pass an IRMutator through to all Exprs referenced in the
      * ReductionDomain. */

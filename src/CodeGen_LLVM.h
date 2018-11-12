@@ -75,13 +75,16 @@ public:
     /** Tell the code generator which LLVM context to use. */
     void set_context(llvm::LLVMContext &context);
 
+    /** Initialize internal llvm state for the enabled targets. */
+    static void initialize_llvm();
+
 protected:
     CodeGen_LLVM(Target t);
 
     /** Compile a specific halide declaration into the llvm Module. */
     // @{
     virtual void compile_func(const LoweredFunc &func, const std::string &simple_name, const std::string &extern_name);
-    virtual void compile_buffer(const Buffer &buffer);
+    virtual void compile_buffer(const Buffer<> &buffer);
     // @}
 
     /** Helper functions for compiling Halide functions to llvm
@@ -112,9 +115,6 @@ protected:
     /** What's the natural vector bit-width to use for loads, stores, etc. */
     virtual int native_vector_bits() const = 0;
 
-    /** Initialize internal llvm state for the enabled targets. */
-    static void initialize_llvm();
-
     /** State needed by llvm for code generation, including the
      * current module, function, context, builder, and most recently
      * generated llvm value. */
@@ -122,6 +122,7 @@ protected:
     static bool llvm_initialized;
     static bool llvm_X86_enabled;
     static bool llvm_ARM_enabled;
+    static bool llvm_Hexagon_enabled;
     static bool llvm_AArch64_enabled;
     static bool llvm_NVPTX_enabled;
     static bool llvm_Mips_enabled;
@@ -137,6 +138,7 @@ protected:
 #endif
     llvm::Value *value;
     llvm::MDNode *very_likely_branch;
+    std::vector<LoweredArgument> current_function_args;
     //@}
 
     /** The target we're generating code for */
@@ -172,7 +174,7 @@ protected:
 
     /** Some useful llvm types */
     // @{
-    llvm::Type *void_t, *i1, *i8, *i16, *i32, *i64, *f16, *f32, *f64;
+    llvm::Type *void_t, *i1_t, *i8_t, *i16_t, *i32_t, *i64_t, *f16_t, *f32_t, *f64_t;
     llvm::StructType *buffer_t_type, *metadata_t_type, *argument_t_type, *scalar_value_t_type;
     // @}
 
@@ -230,7 +232,7 @@ protected:
 
     /** Some destructors should always be called. Others should only
      * be called if the pipeline is exiting with an error code. */
-    enum DestructorType {Always, OnError};
+    enum DestructorType {Always, OnError, OnSuccess};
 
     /* Call this at the location of object creation to register how an
      * object should be destroyed. This does three things:
@@ -267,7 +269,7 @@ protected:
     llvm::Constant *create_string_constant(const std::string &str);
 
     /** Put a binary blob in the module as a global variable and return a pointer to it. */
-    llvm::Constant *create_constant_binary_blob(const std::vector<char> &data, const std::string &name);
+    llvm::Constant *create_binary_blob(const std::vector<char> &data, const std::string &name, bool constant = true);
 
     /** Widen an llvm scalar into an llvm vector with the given number of lanes. */
     llvm::Value *create_broadcast(llvm::Value *, int lanes);
@@ -409,7 +411,7 @@ protected:
     /** Implementation of the intrinsic call to
      * interleave_vectors. This implementation allows for interleaving
      * an arbitrary number of vectors.*/
-    llvm::Value *interleave_vectors(const std::vector<llvm::Value *> &);
+    virtual llvm::Value *interleave_vectors(const std::vector<llvm::Value *> &);
 
     /** Generate a call to a vector intrinsic or runtime inlined
      * function. The arguments are sliced up into vectors of the width
@@ -428,14 +430,14 @@ protected:
 
     /** Take a slice of lanes out of an llvm vector. Pads with undefs
      * if you ask for more lanes than the vector has. */
-    llvm::Value *slice_vector(llvm::Value *vec, int start, int extent);
+    virtual llvm::Value *slice_vector(llvm::Value *vec, int start, int extent);
 
     /** Concatenate a bunch of llvm vectors. Must be of the same type. */
-    llvm::Value *concat_vectors(const std::vector<llvm::Value *> &);
+    virtual llvm::Value *concat_vectors(const std::vector<llvm::Value *> &);
 
     /** Create an LLVM shuffle vectors instruction. */
-    llvm::Value *shuffle_vectors(llvm::Value *a, llvm::Value *b,
-                                 const std::vector<int> &indices);
+    virtual llvm::Value *shuffle_vectors(llvm::Value *a, llvm::Value *b,
+                                         const std::vector<int> &indices);
     /** Shorthand for shuffling a vector with an undef vector. */
     llvm::Value *shuffle_vectors(llvm::Value *v, const std::vector<int> &indices);
 
@@ -489,9 +491,12 @@ private:
     /** Embed a constant expression as a global variable. */
     llvm::Constant *embed_constant_expr(Expr e);
 
-    void register_metadata(const std::string &name, llvm::Function *metadata_getter, llvm::Function *argv_wrapper);
-
     llvm::Function *add_argv_wrapper(const std::string &name);
+
+    llvm::Value *codegen_dense_vector_load(const Load *load, llvm::Value *vpred = nullptr);
+
+    virtual void codegen_predicated_vector_load(const Call *load_addr, Expr predicate);
+    virtual void codegen_predicated_vector_store(const Call *store_addr, Expr predicate, Expr value);
 };
 
 }

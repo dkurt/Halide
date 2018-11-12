@@ -4,15 +4,12 @@
 using namespace Halide;
 
 int main(int argc, char **argv) {
-    if (!get_jit_target_from_environment().has_gpu_feature()) {
-        printf("No gpu target enabled. Skipping test.\n");
-        return 0;
-    }
+    Target target = get_jit_target_from_environment();
 
     if (1) {
         // Test a tuple reduction on the gpu
         Func f;
-        Var x, y;
+        Var x, y, xo, yo, xi, yi;
 
         f(x, y) = Tuple(x + y, x - y);
 
@@ -20,12 +17,17 @@ int main(int argc, char **argv) {
         f(x, y) = Tuple(f(x, y)[1]*2, f(x, y)[0]*2);
         // now equals ((x - y)*2, (x + y)*2)
 
-        f.gpu_tile(x, y, 16, 16);
-        f.update().gpu_tile(x, y, 16, 16);
+        if (target.has_gpu_feature()) {
+            f.gpu_tile(x, y, xo, yo, xi, yi, 16, 16);
+            f.update().gpu_tile(x, y, xo, yo, xi, yi, 16, 16);
+        } else if (target.features_any_of({Target::HVX_64, Target::HVX_128})) {
+            f.hexagon(y).vectorize(x, 32);
+            f.update().hexagon(y).vectorize(x, 32);
+        }
 
         Realization result = f.realize(1024, 1024);
 
-        Image<int> a = result[0], b = result[1];
+        Buffer<int> a = result[0], b = result[1];
 
         for (int y = 0; y < a.height(); y++) {
             for (int x = 0; x < a.width(); x++) {
@@ -43,7 +45,7 @@ int main(int argc, char **argv) {
     if (1) {
         // Now test one that alternates between cpu and gpu per update step
         Func f;
-        Var x, y;
+        Var x, y, xo, yo, xi, yi;
 
         f(x, y) = Tuple(x + y, x - y);
 
@@ -53,18 +55,26 @@ int main(int argc, char **argv) {
         }
 
         // Schedule the pure step and the odd update steps on the gpu
-        f.gpu_tile(x, y, 16, 16);
+        if (target.has_gpu_feature()) {
+            f.gpu_tile(x, y, xo, yo, xi, yi, 16, 16);
+        } else if (target.features_any_of({Target::HVX_64, Target::HVX_128})) {
+            f.hexagon(y).vectorize(x, 32);
+        }
         for (int i = 0; i < 10; i ++) {
-	    if (i & 1) {
-		f.update(i).gpu_tile(x, y, 16, 16);
-	    } else {
-		f.update(i);
-	    }
+            if (i & 1) {
+                if (target.has_gpu_feature()) {
+                    f.update(i).gpu_tile(x, y, xo, yo, xi, yi, 16, 16);
+                } else if (target.features_any_of({Target::HVX_64, Target::HVX_128})) {
+                    f.update(i).hexagon(y).vectorize(x, 32);
+                }
+            } else {
+                f.update(i);
+            }
         }
 
         Realization result = f.realize(1024, 1024);
 
-        Image<int> a = result[0], b = result[1];
+        Buffer<int> a = result[0], b = result[1];
 
         for (int y = 0; y < a.height(); y++) {
             for (int x = 0; x < a.width(); x++) {
@@ -83,7 +93,7 @@ int main(int argc, char **argv) {
     if (1) {
         // Same as above, but switches which steps are gpu and cpu
         Func f;
-        Var x, y;
+        Var x, y, xo, yo, xi, yi;
 
         f(x, y) = Tuple(x + y, x - y);
 
@@ -95,7 +105,11 @@ int main(int argc, char **argv) {
         // Schedule the even update steps on the gpu
         for (int i = 0; i < 10; i ++) {
             if (i & 1) {
-                f.update(i).gpu_tile(x, y, 16, 16);
+                if (target.has_gpu_feature()) {
+                    f.update(i).gpu_tile(x, y, xo, yo, xi, yi, 16, 16);
+                } else if (target.features_any_of({Target::HVX_64, Target::HVX_128})) {
+                    f.update(i).hexagon(y).vectorize(x, 32);
+                }
             } else {
                 f.update(i);
             }
@@ -103,7 +117,7 @@ int main(int argc, char **argv) {
 
         Realization result = f.realize(1024, 1024);
 
-        Image<int> a = result[0], b = result[1];
+        Buffer<int> a = result[0], b = result[1];
 
         for (int y = 0; y < a.height(); y++) {
             for (int x = 0; x < a.width(); x++) {
@@ -124,7 +138,7 @@ int main(int argc, char **argv) {
         // of the previous step, so only that buffer should get copied
         // back to host or copied to device.
         Func f;
-        Var x, y;
+        Var x, y, xo, yo, xi, yi;
 
         f(x, y) = Tuple(x + y - 1000, x - y + 1000);
 
@@ -137,13 +151,17 @@ int main(int argc, char **argv) {
             if (i & 1) {
                 f.update(i);
             } else {
-                f.update(i).gpu_tile(x, y, 16, 16);
+                if (target.has_gpu_feature()) {
+                    f.update(i).gpu_tile(x, y, xo, yo, xi, yi, 16, 16);
+                } else if (target.features_any_of({Target::HVX_64, Target::HVX_128})) {
+                    f.update(i).hexagon(y).vectorize(x, 32);
+                }
             }
         }
 
         Realization result = f.realize(1024, 1024);
 
-        Image<int> a = result[0], b = result[1];
+        Buffer<int> a = result[0], b = result[1];
 
         for (int y = 0; y < a.height(); y++) {
             for (int x = 0; x < a.width(); x++) {

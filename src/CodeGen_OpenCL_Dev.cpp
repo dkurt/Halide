@@ -109,7 +109,9 @@ string simt_intrinsic(const string &name) {
 
 void CodeGen_OpenCL_Dev::CodeGen_OpenCL_C::visit(const For *loop) {
     if (is_gpu_var(loop->name)) {
-        internal_assert(loop->for_type == ForType::Parallel) << "kernel loop must be parallel\n";
+        internal_assert((loop->for_type == ForType::GPUBlock) ||
+                        (loop->for_type == ForType::GPUThread))
+            << "kernel loop must be either gpu block or gpu thread\n";
         internal_assert(is_zero(loop->min));
 
         do_indent();
@@ -171,11 +173,7 @@ string CodeGen_OpenCL_Dev::CodeGen_OpenCL_C::get_memory_space(const string &buf)
 }
 
 void CodeGen_OpenCL_Dev::CodeGen_OpenCL_C::visit(const Call *op) {
-    if (op->call_type != Call::Intrinsic) {
-        CodeGen_C::visit(op);
-        return;
-    }
-    if (op->name == Call::interleave_vectors) {
+    if (op->is_intrinsic(Call::interleave_vectors)) {
         int op_lanes = op->type.lanes();
         internal_assert(op->args.size() > 0);
         int arg_lanes = op->args[0].type().lanes();
@@ -224,6 +222,47 @@ void CodeGen_OpenCL_Dev::CodeGen_OpenCL_C::visit(const Call *op) {
             }
             stream << ");\n";
         }
+    } else if (op->is_intrinsic(Call::bool_to_mask)) {
+        if (op->args[0].type().is_vector()) {
+            // The argument is already a mask of the right width. Just
+            // sign-extend to the expected type.
+            op->args[0].accept(this);
+        } else {
+            // The argument is a scalar bool. Casting it to an int
+            // produces zero or one. Convert it to -1 of the requested
+            // type.
+            Expr equiv = -Cast::make(op->type, op->args[0]);
+            equiv.accept(this);
+        }
+    } else if (op->is_intrinsic(Call::cast_mask)) {
+        // Sign-extension is fine
+        Expr equiv = Cast::make(op->type, op->args[0]);
+        equiv.accept(this);
+    } else if (op->is_intrinsic(Call::select_mask)) {
+        internal_assert(op->args.size() == 3);
+        string cond = print_expr(op->args[0]);
+        string true_val = print_expr(op->args[1]);
+        string false_val = print_expr(op->args[2]);
+
+        // Yes, you read this right. OpenCL's select function is declared
+        // 'select(false_case, true_case, condition)'.
+        ostringstream rhs;
+        rhs << "select(" << false_val << ", " << true_val << ", " << cond << ")";
+        print_assignment(op->type, rhs.str());
+    } else if (op->is_intrinsic(Call::abs)) {
+        if (op->type.is_float()) {
+            ostringstream rhs;
+            rhs << "abs_f" << op->type.bits() << "(" << print_expr(op->args[0]) << ")";
+            print_assignment(op->type, rhs.str());
+        } else {
+            ostringstream rhs;
+            rhs << "abs(" << print_expr(op->args[0]) << ")";
+            print_assignment(op->type, rhs.str());
+        }
+    } else if (op->is_intrinsic(Call::absd)) {
+        ostringstream rhs;
+        rhs << "abs_diff(" << print_expr(op->args[0]) << ", " << print_expr(op->args[1]) << ")";
+        print_assignment(op->type, rhs.str());
     } else {
         CodeGen_C::visit(op);
     }
@@ -387,19 +426,8 @@ void CodeGen_OpenCL_Dev::CodeGen_OpenCL_C::visit(const Cast *op) {
 }
 
 void CodeGen_OpenCL_Dev::CodeGen_OpenCL_C::visit(const Select *op) {
-    if (op->condition.type().is_vector()) {
-        string true_val = print_expr(op->true_value);
-        string false_val = print_expr(op->false_value);
-        string cond = print_expr(op->condition);
-
-        // Yes, you read this right. OpenCL's select function is declared
-        // 'select(false_case, true_case, condition)'.
-        ostringstream rhs;
-        rhs << "select(" << false_val << ", " << true_val << ", " << cond << ")";
-        print_assignment(op->type, rhs.str());
-    } else {
-        CodeGen_C::visit(op);
-    }
+    internal_assert(op->condition.type().is_scalar());
+    CodeGen_C::visit(op);
 }
 
 void CodeGen_OpenCL_Dev::CodeGen_OpenCL_C::visit(const Allocate *op) {
@@ -553,13 +581,17 @@ void CodeGen_OpenCL_Dev::CodeGen_OpenCL_C::add_kernel(Stmt s,
             stream << " " << get_memory_space(args[i].name) << " ";
             if (!args[i].write) stream << "const ";
             stream << print_type(args[i].type) << " *"
+                   << "restrict "
                    << print_name(args[i].name);
             Allocation alloc;
             alloc.type = args[i].type;
             allocations.push(args[i].name, alloc);
         } else {
+            Type t = args[i].type;
+            // Bools are passed as a uint8.
+            t = t.with_bits(t.bytes() * 8);
             stream << " const "
-                   << print_type(args[i].type)
+                   << print_type(t)
                    << " "
                    << print_name(args[i].name);
         }

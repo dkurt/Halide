@@ -31,7 +31,8 @@ class StripIdentities : public IRMutator {
         if (op->is_intrinsic(Call::trace_expr)) {
             expr = mutate(op->args[4]);
         } else if (op->is_intrinsic(Call::return_second) ||
-                   op->is_intrinsic(Call::likely)) {
+                   op->is_intrinsic(Call::likely) ||
+                   op->is_intrinsic(Call::likely_if_innermost)) {
             expr = mutate(op->args.back());
         } else {
             IRMutator::visit(op);
@@ -97,7 +98,7 @@ class IsNoOp : public IRVisitor {
                 return;
             }
 
-            Expr equivalent_load = Load::make(op->value.type(), op->name, op->index, Buffer(), Parameter());
+            Expr equivalent_load = Load::make(op->value.type(), op->name, op->index, Buffer<>(), Parameter());
             Expr is_no_op = equivalent_load == op->value;
             is_no_op = StripIdentities().mutate(is_no_op);
             // We need to call CSE since sometimes we have "let" stmt on the RHS
@@ -152,9 +153,19 @@ class IsNoOp : public IRVisitor {
              op->name == Call::image_store ||
              op->name == Call::copy_memory)) {
             condition = const_false();
-        } else {
-            IRVisitor::visit(op);
+            return;
+        } else if (((op->name == Call::predicated_load) ||
+                    (op->name == Call::predicated_store))) {
+            // If the predicate of a predicated load/store is always false,
+            // it's okay to trim it; otherwise, do nothing.
+            Expr pred = op->args[1];
+            internal_assert(pred.defined());
+            if (!is_zero(pred)) {
+                condition = const_false();
+                return;
+            }
         }
+        IRVisitor::visit(op);
     }
 
     template<typename LetOrLetStmt>
@@ -199,13 +210,17 @@ class SimplifyUsingBounds : public IRMutator {
                 break;
             } else if (!expr_uses_var(test, loop.var)) {
                 continue;
-            }  else if (is_one(simplify(loop.i.min == loop.i.max)) && expr_uses_var(test, loop.var)) {
+            }  else if (loop.i.is_bounded() &&
+                        can_prove(loop.i.min == loop.i.max) &&
+                        expr_uses_var(test, loop.var)) {
                 // If min == max then either the domain only has one correct value, which we
                 // can substitute directly.
                 // Need to call CSE here since simplify() is sometimes unable to simplify expr with
                 // non-trivial 'let' value, e.g. (let x = min(10, y-1) in (x < y))
                 test = common_subexpression_elimination(Let::make(loop.var, loop.i.min, test));
-            } else if (is_one(simplify(loop.i.min >= loop.i.max)) && expr_uses_var(test, loop.var)) {
+            } else if (loop.i.is_bounded() &&
+                       can_prove(loop.i.min >= loop.i.max) &&
+                       expr_uses_var(test, loop.var)) {
                 // If min >= max then either the domain only has one correct value,
                 // or the domain is empty, which implies both min/max are true under
                 // the domain.
@@ -217,9 +232,9 @@ class SimplifyUsingBounds : public IRMutator {
                 Scope<Interval> s;
                 // Rearrange the expression if possible so that the
                 // loop var only occurs once.
-                Expr solved = solve_expression(test, loop.var);
-                if (solved.defined()) {
-                    test = solved;
+                SolverResult solved = solve_expression(test, loop.var);
+                if (solved.fully_solved) {
+                    test = solved.result;
                 }
                 s.push(loop.var, loop.i);
                 test = and_condition_over_domain(test, s);
@@ -370,13 +385,13 @@ class TrimNoOps : public IRMutator {
 
         debug(3) << "Interval is: " << i.min << ", " << i.max << "\n";
 
-        if (interval_is_everything(i)) {
+        if (i.is_everything()) {
             // Nope.
             stmt = For::make(op->name, op->min, op->extent, op->for_type, op->device_api, body);
             return;
         }
 
-        if (interval_is_empty(i)) {
+        if (i.is_empty()) {
             // Empty loop
             stmt = Evaluate::make(0);
             return;
@@ -394,7 +409,7 @@ class TrimNoOps : public IRMutator {
         Expr old_max_var = Variable::make(Int(32), old_max_name);
 
         // Convert max to max-plus-one
-        if (interval_has_upper_bound(i)) {
+        if (i.has_upper_bound()) {
             i.max = i.max + 1;
         }
 
@@ -402,12 +417,12 @@ class TrimNoOps : public IRMutator {
         // a no-op.
         Expr old_max = op->min + op->extent;
         Expr new_min, new_max;
-        if (interval_has_lower_bound(i)) {
+        if (i.has_lower_bound()) {
             new_min = clamp(i.min, op->min, old_max_var);
         } else {
             new_min = op->min;
         }
-        if (interval_has_upper_bound(i)) {
+        if (i.has_upper_bound()) {
             new_max = clamp(i.max, new_min_var, old_max_var);
         } else {
             new_max = old_max;

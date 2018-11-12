@@ -78,9 +78,9 @@ private:
         Expr trace_parent;
         if (op->call_type == Call::Halide) {
             Function f = env.find(op->name)->second;
-            bool inlined = f.schedule().compute_level().is_inline();
-            if (f.has_update_definition()) inlined = false;
-            trace_it = f.is_tracing_loads() || (global_level > 2 && !inlined);
+            internal_assert(!f.can_be_inlined() || !f.schedule().compute_level().is_inline());
+
+            trace_it = f.is_tracing_loads() || (global_level > 2);
             trace_parent = Variable::make(Int(32), op->name + ".trace_id");
         } else if (op->call_type == Call::Image) {
             trace_it = global_level > 2;
@@ -110,10 +110,9 @@ private:
         map<string, Function>::const_iterator iter = env.find(op->name);
         if (iter == env.end()) return;
         Function f = iter->second;
-        bool inlined = f.schedule().compute_level().is_inline();
-        if (f.has_update_definition()) inlined = false;
+        internal_assert(!f.can_be_inlined() || !f.schedule().compute_level().is_inline());
 
-        if (f.is_tracing_stores() || (global_level > 1 && !inlined)) {
+        if (f.is_tracing_stores() || (global_level > 1)) {
             // Wrap each expr in a tracing call
 
             const vector<Expr> &values = op->values;
@@ -194,38 +193,31 @@ private:
             args.push_back(0); // value
 
             // Use the size of the pure step
-
+            const vector<string> f_args = f.args();
             for (int i = 0; i < f.dimensions(); i++) {
-                Expr min = Variable::make(Int(32), f.name() + ".s0." + f.args()[i] + ".min");
-                Expr max = Variable::make(Int(32), f.name() + ".s0." + f.args()[i] + ".max");
+                Expr min = Variable::make(Int(32), f.name() + ".s0." + f_args[i] + ".min");
+                Expr max = Variable::make(Int(32), f.name() + ".s0." + f_args[i] + ".max");
                 Expr extent = (max + 1) - min;
                 args.push_back(min);
                 args.push_back(extent);
             }
 
             Expr call;
-            Stmt new_update;
-            if (op->update.defined()) {
-                args[1] = halide_trace_update;
+            if (op->is_producer) {
+                args[1] = halide_trace_produce;
                 call = Call::make(Int(32), Call::trace, args, Call::Intrinsic);
-                new_update = Block::make(Evaluate::make(call), op->update);
+            } else {
+                args[1] = halide_trace_end_consume;
+                call = Call::make(Int(32), Call::trace, args, Call::Intrinsic);
+                Stmt new_body = Block::make(op->body, Evaluate::make(call));
+
+                stmt = ProducerConsumer::make(op->name, op->is_producer, new_body);
+
+                args[1] = halide_trace_consume;
+                call = Call::make(Int(32), Call::trace, args, Call::Intrinsic);
             }
-
-            args[1] = halide_trace_consume;
-            call = Call::make(Int(32), Call::trace, args, Call::Intrinsic);
-            Stmt new_consume = Block::make(Evaluate::make(call), op->consume);
-
-            args[1] = halide_trace_end_consume;
-            call = Call::make(Int(32), Call::trace, args, Call::Intrinsic);
-            new_consume = Block::make(new_consume, Evaluate::make(call));
-
-            stmt = ProducerConsumer::make(op->name, op->produce, new_update, new_consume);
-
-            args[1] = halide_trace_produce;
-            call = Call::make(Int(32), Call::trace, args, Call::Intrinsic);
             stmt = LetStmt::make(f.name() + ".trace_id", call, stmt);
         }
-
     }
 };
 

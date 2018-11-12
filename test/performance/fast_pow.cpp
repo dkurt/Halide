@@ -22,28 +22,34 @@ int main(int argc, char **argv) {
     Func f, g, h;
     Var x, y;
 
-    f(x, y) = pow_ref((x+1)/512.0f, (y+1)/512.0f);
-    g(x, y) = pow((x+1)/512.0f, (y+1)/512.0f);
-    h(x, y) = fast_pow((x+1)/512.0f, (y+1)/512.0f);
+    Param<int> pows_per_pixel;
+
+    RDom s(0, pows_per_pixel);
+    f(x, y) = sum(pow_ref((x+1)/512.0f, (y+1+s)/512.0f));
+    g(x, y) = sum(pow((x+1)/512.0f, (y+1+s)/512.0f));
+    h(x, y) = sum(fast_pow((x+1)/512.0f, (y+1+s)/512.0f));
     f.vectorize(x, 8);
     g.vectorize(x, 8);
     h.vectorize(x, 8);
 
-    Image<float> correct_result(2048, 768);
-    Image<float> fast_result(2048, 768);
-    Image<float> faster_result(2048, 768);
+    Buffer<float> correct_result(2048, 768);
+    Buffer<float> fast_result(2048, 768);
+    Buffer<float> faster_result(2048, 768);
+
+    pows_per_pixel.set(1);
 
     f.realize(correct_result);
     g.realize(fast_result);
     h.realize(faster_result);
 
-    const int trials = 5;
-    const int iterations = 5;
+    const int trials = 10;
+    const int iterations = 10;
+    pows_per_pixel.set(20);
 
     // All profiling runs are done into the same buffer, to avoid
     // cache weirdness.
-    Image<float> timing_scratch(400, 400);
-    double t1 = 1e3 * benchmark(trials, iterations, [&]() { f.realize(timing_scratch); });
+    Buffer<float> timing_scratch(256, 256);
+    double t1 = 1e3 * benchmark(3, 3, [&]() { f.realize(timing_scratch); });
     double t2 = 1e3 * benchmark(trials, iterations, [&]() { g.realize(timing_scratch); });
     double t3 = 1e3 * benchmark(trials, iterations, [&]() { h.realize(timing_scratch); });
 
@@ -54,10 +60,10 @@ int main(int argc, char **argv) {
     fast_error() += cast<double>(fast_delta * fast_delta);
     faster_error() += cast<double>(faster_delta * faster_delta);
 
-    Image<double> fast_err = fast_error.realize();
-    Image<double> faster_err = faster_error.realize();
+    Buffer<double> fast_err = fast_error.realize();
+    Buffer<double> faster_err = faster_error.realize();
 
-    int timing_N = timing_scratch.width() * timing_scratch.height();
+    int timing_N = timing_scratch.width() * timing_scratch.height() * 10;
     int correctness_N = fast_result.width() * fast_result.height();
     fast_err(0) = sqrt(fast_err(0)/correctness_N);
     faster_err(0) = sqrt(faster_err(0)/correctness_N);
@@ -84,8 +90,8 @@ int main(int argc, char **argv) {
         return -1;
     }
 
-    if (t2 < t3) {
-        printf("pow is faster than fast_pow\n");
+    if (t2*1.5 < t3) {
+        printf("pow is more than 1.5x faster than fast_pow\n");
         return -1;
     }
 

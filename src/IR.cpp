@@ -5,37 +5,6 @@
 namespace Halide {
 namespace Internal {
 
-namespace {
-
-const IntImm *make_immortal_int(int x) {
-    IntImm *i = new IntImm;
-    i->ref_count.increment();
-    i->type = Int(32);
-    i->value = x;
-    return i;
-}
-
-}
-
-const IntImm *IntImm::small_int_cache[] = {make_immortal_int(-8),
-                                           make_immortal_int(-7),
-                                           make_immortal_int(-6),
-                                           make_immortal_int(-5),
-                                           make_immortal_int(-4),
-                                           make_immortal_int(-3),
-                                           make_immortal_int(-2),
-                                           make_immortal_int(-1),
-                                           make_immortal_int(0),
-                                           make_immortal_int(1),
-                                           make_immortal_int(2),
-                                           make_immortal_int(3),
-                                           make_immortal_int(4),
-                                           make_immortal_int(5),
-                                           make_immortal_int(6),
-                                           make_immortal_int(7),
-                                           make_immortal_int(8)};
-
-
 Expr Cast::make(Type t, Expr v) {
     internal_assert(v.defined()) << "Cast of undefined\n";
     internal_assert(t.lanes() == v.type().lanes()) << "Cast may not change vector widths\n";
@@ -260,7 +229,7 @@ Expr Select::make(Expr condition, Expr true_value, Expr false_value) {
     return node;
 }
 
-Expr Load::make(Type type, std::string name, Expr index, Buffer image, Parameter param) {
+Expr Load::make(Type type, std::string name, Expr index, Buffer<> image, Parameter param) {
     internal_assert(index.defined()) << "Load of undefined\n";
     internal_assert(type.lanes() == index.type().lanes()) << "Vector lanes of Load must match vector lanes of index\n";
 
@@ -334,16 +303,13 @@ Stmt AssertStmt::make(Expr condition, Expr message) {
     return node;
 }
 
-Stmt ProducerConsumer::make(std::string name, Stmt produce, Stmt update, Stmt consume) {
-    internal_assert(produce.defined()) << "ProducerConsumer of undefined\n";
-    // update is allowed to be null
-    internal_assert(consume.defined()) << "ProducerConsumer of undefined\n";
+Stmt ProducerConsumer::make(std::string name, bool is_producer, Stmt body) {
+    internal_assert(body.defined()) << "ProducerConsumer of undefined\n";
 
     ProducerConsumer *node = new ProducerConsumer;
     node->name = name;
-    node->produce = produce;
-    node->update = update;
-    node->consume = consume;
+    node->is_producer = is_producer;
+    node->body = body;
     return node;
 }
 
@@ -524,9 +490,18 @@ Stmt Evaluate::make(Expr v) {
     return node;
 }
 
+Expr Call::make(Function func, const std::vector<Expr> &args, int idx) {
+    internal_assert(idx >= 0 &&
+                    idx < func.outputs())
+        << "Value index out of range in call to halide function\n";
+    internal_assert(func.has_pure_definition() || func.has_extern_definition())
+        << "Call to undefined halide function\n";
+    return make(func.output_types()[(size_t)idx], func.name(), args, Halide, func.get_contents(), idx, Buffer<>(), Parameter());
+}
+
 Expr Call::make(Type type, std::string name, const std::vector<Expr> &args, CallType call_type,
                 IntrusivePtr<FunctionContents> func, int value_index,
-                Buffer image, Parameter param) {
+                Buffer<> image, Parameter param) {
     for (size_t i = 0; i < args.size(); i++) {
         internal_assert(args[i].defined()) << "Call of undefined\n";
     }
@@ -556,7 +531,7 @@ Expr Call::make(Type type, std::string name, const std::vector<Expr> &args, Call
     return node;
 }
 
-Expr Variable::make(Type type, std::string name, Buffer image, Parameter param, ReductionDomain reduction_domain) {
+Expr Variable::make(Type type, std::string name, Buffer<> image, Parameter param, ReductionDomain reduction_domain) {
     internal_assert(!name.empty());
     Variable *node = new Variable;
     node->type = type;
@@ -608,50 +583,10 @@ template<> void StmtNode<Block>::accept(IRVisitor *v) const { v->visit((const Bl
 template<> void StmtNode<IfThenElse>::accept(IRVisitor *v) const { v->visit((const IfThenElse *)this); }
 template<> void StmtNode<Evaluate>::accept(IRVisitor *v) const { v->visit((const Evaluate *)this); }
 
-template<> IRNodeType ExprNode<IntImm>::_type_info = {};
-template<> IRNodeType ExprNode<UIntImm>::_type_info = {};
-template<> IRNodeType ExprNode<FloatImm>::_type_info = {};
-template<> IRNodeType ExprNode<StringImm>::_type_info = {};
-template<> IRNodeType ExprNode<Cast>::_type_info = {};
-template<> IRNodeType ExprNode<Variable>::_type_info = {};
-template<> IRNodeType ExprNode<Add>::_type_info = {};
-template<> IRNodeType ExprNode<Sub>::_type_info = {};
-template<> IRNodeType ExprNode<Mul>::_type_info = {};
-template<> IRNodeType ExprNode<Div>::_type_info = {};
-template<> IRNodeType ExprNode<Mod>::_type_info = {};
-template<> IRNodeType ExprNode<Min>::_type_info = {};
-template<> IRNodeType ExprNode<Max>::_type_info = {};
-template<> IRNodeType ExprNode<EQ>::_type_info = {};
-template<> IRNodeType ExprNode<NE>::_type_info = {};
-template<> IRNodeType ExprNode<LT>::_type_info = {};
-template<> IRNodeType ExprNode<LE>::_type_info = {};
-template<> IRNodeType ExprNode<GT>::_type_info = {};
-template<> IRNodeType ExprNode<GE>::_type_info = {};
-template<> IRNodeType ExprNode<And>::_type_info = {};
-template<> IRNodeType ExprNode<Or>::_type_info = {};
-template<> IRNodeType ExprNode<Not>::_type_info = {};
-template<> IRNodeType ExprNode<Select>::_type_info = {};
-template<> IRNodeType ExprNode<Load>::_type_info = {};
-template<> IRNodeType ExprNode<Ramp>::_type_info = {};
-template<> IRNodeType ExprNode<Broadcast>::_type_info = {};
-template<> IRNodeType ExprNode<Call>::_type_info = {};
-template<> IRNodeType ExprNode<Let>::_type_info = {};
-template<> IRNodeType StmtNode<LetStmt>::_type_info = {};
-template<> IRNodeType StmtNode<AssertStmt>::_type_info = {};
-template<> IRNodeType StmtNode<ProducerConsumer>::_type_info = {};
-template<> IRNodeType StmtNode<For>::_type_info = {};
-template<> IRNodeType StmtNode<Store>::_type_info = {};
-template<> IRNodeType StmtNode<Provide>::_type_info = {};
-template<> IRNodeType StmtNode<Allocate>::_type_info = {};
-template<> IRNodeType StmtNode<Free>::_type_info = {};
-template<> IRNodeType StmtNode<Realize>::_type_info = {};
-template<> IRNodeType StmtNode<Block>::_type_info = {};
-template<> IRNodeType StmtNode<IfThenElse>::_type_info = {};
-template<> IRNodeType StmtNode<Evaluate>::_type_info = {};
-
 Call::ConstString Call::debug_to_file = "debug_to_file";
 Call::ConstString Call::shuffle_vector = "shuffle_vector";
 Call::ConstString Call::interleave_vectors = "interleave_vectors";
+Call::ConstString Call::concat_vectors = "concat_vectors";
 Call::ConstString Call::reinterpret = "reinterpret";
 Call::ConstString Call::bitwise_and = "bitwise_and";
 Call::ConstString Call::bitwise_not = "bitwise_not";
@@ -691,10 +626,20 @@ Call::ConstString Call::stringify = "stringify";
 Call::ConstString Call::memoize_expr = "memoize_expr";
 Call::ConstString Call::copy_memory = "copy_memory";
 Call::ConstString Call::likely = "likely";
+Call::ConstString Call::likely_if_innermost = "likely_if_innermost";
 Call::ConstString Call::register_destructor = "register_destructor";
 Call::ConstString Call::div_round_to_zero = "div_round_to_zero";
 Call::ConstString Call::mod_round_to_zero = "mod_round_to_zero";
-
-
+Call::ConstString Call::slice_vector = "slice_vector";
+Call::ConstString Call::call_cached_indirect_function = "call_cached_indirect_function";
+Call::ConstString Call::prefetch = "prefetch";
+Call::ConstString Call::prefetch_2d = "prefetch_2d";
+Call::ConstString Call::signed_integer_overflow = "signed_integer_overflow";
+Call::ConstString Call::predicated_store = "predicated_store";
+Call::ConstString Call::predicated_load = "predicated_load";
+Call::ConstString Call::indeterminate_expression = "indeterminate_expression";
+Call::ConstString Call::bool_to_mask = "bool_to_mask";
+Call::ConstString Call::cast_mask = "cast_mask";
+Call::ConstString Call::select_mask = "select_mask";
 }
 }

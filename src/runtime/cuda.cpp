@@ -1,8 +1,8 @@
 #include "HalideRuntimeCuda.h"
+#include "device_buffer_utils.h"
 #include "device_interface.h"
 #include "printer.h"
 #include "mini_cuda.h"
-#include "cuda_opencl_shared.h"
 
 #define INLINE inline __attribute__((always_inline))
 
@@ -67,7 +67,7 @@ WEAK void load_libcuda(void *user_context) {
     #include "cuda_functions.h"
 }
 
-extern WEAK halide_device_interface cuda_device_interface;
+extern WEAK halide_device_interface_t cuda_device_interface;
 
 WEAK const char *get_error_name(CUresult error);
 WEAK CUresult create_cuda_context(void *user_context, CUcontext *ctx);
@@ -132,9 +132,9 @@ public:
     int error;
 
     // Constructor sets 'error' if any occurs.
-    Context(void *user_context) : user_context(user_context),
-                                  context(NULL),
-                                  error(CUDA_SUCCESS) {
+    INLINE Context(void *user_context) : user_context(user_context),
+                                         context(NULL),
+                                         error(CUDA_SUCCESS) {
         if (cuInit == NULL) {
             load_libcuda(user_context);
         }
@@ -151,7 +151,7 @@ public:
         error = cuCtxPushCurrent(context);
     }
 
-    ~Context() {
+    INLINE ~Context() {
         CUcontext old;
         cuCtxPopCurrent(&old);
 
@@ -393,7 +393,20 @@ WEAK int halide_cuda_initialize_kernels(void *user_context, void **state_ptr, co
     // Create the module itself if necessary.
     if (!(*state)->module) {
         debug(user_context) <<  "    cuModuleLoadData " << (void *)ptx_src << ", " << size << " -> ";
-        CUresult err = cuModuleLoadData(&(*state)->module, ptx_src);
+
+        CUjit_option options[] = { CU_JIT_MAX_REGISTERS };
+        unsigned int max_regs_per_thread = 64;
+
+        // A hack to enable control over max register count for
+        // testing. This should be surfaced in the schedule somehow
+        // instead.
+        char *regs = getenv("HL_CUDA_JIT_MAX_REGISTERS");
+        if (regs) {
+            max_regs_per_thread = atoi(regs);
+        }
+        void *optionValues[] = { (void*)(uintptr_t) max_regs_per_thread };
+        CUresult err = cuModuleLoadDataEx(&(*state)->module, ptx_src, 1, options, optionValues);
+
         if (err != CUDA_SUCCESS) {
             debug(user_context) << get_error_name(err) << "\n";
             error(user_context) << "CUDA: cuModuleLoadData failed: "
@@ -443,8 +456,7 @@ WEAK int halide_cuda_device_free(void *user_context, buffer_t* buf) {
     halide_delete_device_wrapper(buf->dev);
     buf->dev = 0;
     if (err != CUDA_SUCCESS) {
-        error(user_context) << "CUDA: cuMemFree failed: "
-                            << get_error_name(err);
+        // We may be called as a destructor, so don't raise an error here.
         return err;
     }
 
@@ -521,7 +533,8 @@ WEAK int halide_cuda_device_malloc(void *user_context, buffer_t *buf) {
         return ctx.error;
     }
 
-    size_t size = buf_size(user_context, buf);
+    size_t size = buf_size(buf);
+    halide_assert(user_context, size != 0);
     if (buf->dev) {
         // This buffer already has a device allocation
         halide_assert(user_context, validate_device_pointer(user_context, buf, size));
@@ -814,6 +827,14 @@ WEAK int halide_cuda_run(void *user_context,
     return 0;
 }
 
+WEAK int halide_cuda_device_and_host_malloc(void *user_context, struct buffer_t *buf) {
+    return halide_default_device_and_host_malloc(user_context, buf, &cuda_device_interface);
+}
+
+WEAK int halide_cuda_device_and_host_free(void *user_context, struct buffer_t *buf) {
+    return halide_default_device_and_host_free(user_context, buf, &cuda_device_interface);
+}
+
 WEAK int halide_cuda_wrap_device_ptr(void *user_context, struct buffer_t *buf, uintptr_t device_ptr) {
     halide_assert(user_context, buf->dev == 0);
     if (buf->dev != 0) {
@@ -853,7 +874,7 @@ WEAK uintptr_t halide_cuda_get_device_ptr(void *user_context, struct buffer_t *b
     return (uintptr_t)dev_ptr;
 }
 
-WEAK const halide_device_interface *halide_cuda_device_interface() {
+WEAK const halide_device_interface_t *halide_cuda_device_interface() {
     return &cuda_device_interface;
 }
 
@@ -903,7 +924,7 @@ WEAK const char *get_error_name(CUresult error) {
     }
 }
 
-WEAK halide_device_interface cuda_device_interface = {
+WEAK halide_device_interface_t cuda_device_interface = {
     halide_use_jit_module,
     halide_release_jit_module,
     halide_cuda_device_malloc,
@@ -912,6 +933,8 @@ WEAK halide_device_interface cuda_device_interface = {
     halide_cuda_device_release,
     halide_cuda_copy_to_host,
     halide_cuda_copy_to_device,
+    halide_cuda_device_and_host_malloc,
+    halide_cuda_device_and_host_free,
 };
 
 }}}} // namespace Halide::Runtime::Internal::Cuda

@@ -16,7 +16,7 @@ using std::pair;
 class FindBuffers : public IRGraphVisitor {
 public:
     struct Result {
-        Buffer image;
+        Buffer<> image;
         Parameter param;
         Type type;
         int dimensions;
@@ -146,7 +146,7 @@ Stmt add_image_checks(Stmt s,
 
     for (pair<const string, FindBuffers::Result> &buf : bufs) {
         const string &name = buf.first;
-        Buffer &image = buf.second.image;
+        Buffer<> &image = buf.second.image;
         Parameter &param = buf.second.param;
         Type type = buf.second.type;
         int dimensions = buf.second.dimensions;
@@ -250,7 +250,7 @@ Stmt add_image_checks(Stmt s,
             Expr actual_min = Variable::make(Int(32), actual_min_name, image, param, rdom);
             Expr actual_extent = Variable::make(Int(32), actual_extent_name, image, param, rdom);
             Expr actual_stride = Variable::make(Int(32), actual_stride_name, image, param, rdom);
-            if (!touched[j].min.defined() || !touched[j].max.defined()) {
+            if (!touched[j].is_bounded()) {
                 user_error << "Buffer " << name
                            << " may be accessed in an unbounded way in dimension "
                            << j << "\n";
@@ -304,16 +304,16 @@ Stmt add_image_checks(Stmt s,
             }
             lets_required.push_back(make_pair(name + ".stride." + dim + ".required", stride_required));
 
-            // Insert checks to make sure the total size of all input
-            // and output buffers is <= 2^31 - 1.  And that no product
-            // of extents overflows 2^31 - 1. This second test is
-            // likely only needed if a fuse directive is used in the
-            // schedule to combine multiple extents, but it is here
-            // for extra safety. Ultimately we will want to make
-            // Halide handle larger single buffers, at least on 64-bit
-            // systems.
-            Expr max_size = cast<int64_t>(0x7fffffff);
-            Expr actual_size = cast<int64_t>(actual_extent) * actual_stride;
+            // On 32-bit systems, insert checks to make sure the total
+            // size of all input and output buffers is <= 2^31 - 1.
+            // And that no product of extents overflows 2^31 - 1. This
+            // second test is likely only needed if a fuse directive
+            // is used in the schedule to combine multiple extents,
+            // but it is here for extra safety. On targets with the
+            // LargeBuffers feature, the maximum size is 2^63 - 1.
+            Expr max_size = make_const(UInt(64), t.maximum_buffer_size());
+            Expr max_extent = make_const(UInt(64), 0x7fffffff);
+            Expr actual_size = abs(cast<int64_t>(actual_extent) * actual_stride);
             Expr allocation_size_error = Call::make(Int(32), "halide_error_buffer_allocation_too_large",
                                                     {name, actual_size, max_size}, Call::Extern);
             Stmt check = AssertStmt::make(actual_size <= max_size, allocation_size_error);
@@ -324,6 +324,7 @@ Stmt add_image_checks(Stmt s,
                 if (j == 0) {
                     lets_overflow.push_back(make_pair(name + ".total_extent." + dim, cast<int64_t>(actual_extent)));
                 } else {
+                    max_size = cast<int64_t>(max_size);
                     Expr last_dim = Variable::make(Int(64), name + ".total_extent." + std::to_string(j-1));
                     Expr this_dim = actual_extent * last_dim;
                     Expr this_dim_var = Variable::make(Int(64), name + ".total_extent." + dim);
@@ -387,7 +388,7 @@ Stmt add_image_checks(Stmt s,
 
                     stride_constrained = param.stride_constraint(i);
                 } else if (image.defined() && (int)i < image.dimensions()) {
-                    stride_constrained = image.stride(i);
+                    stride_constrained = image.dim(i).stride();
                 }
 
                 std::string min0_name = buffer_name + ".0.min." + dim;
@@ -404,9 +405,9 @@ Stmt add_image_checks(Stmt s,
                     extent_constrained = Variable::make(Int(32), extent0_name);
                 }
             } else if (image.defined() && (int)i < image.dimensions()) {
-                stride_constrained = image.stride(i);
-                extent_constrained = image.extent(i);
-                min_constrained = image.min(i);
+                stride_constrained = image.dim(i).stride();
+                extent_constrained = image.dim(i).extent();
+                min_constrained = image.dim(i).min();
             } else if (param.defined()) {
                 stride_constrained = param.stride_constraint(i);
                 extent_constrained = param.extent_constraint(i);

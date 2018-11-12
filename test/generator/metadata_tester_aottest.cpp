@@ -1,4 +1,5 @@
 #include "HalideRuntime.h"
+#include "HalideBuffer.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -8,9 +9,8 @@
 
 #include "metadata_tester.h"
 #include "metadata_tester_ucon.h"
-#include "halide_image.h"
 
-using namespace Halide::Tools;
+using namespace Halide::Runtime;
 
 const int kSize = 32;
 
@@ -104,17 +104,17 @@ void match_argument(const halide_filter_argument_t &e, const halide_filter_argum
     EXPECT_STREQ(e.name, a.name);
     EXPECT_EQ(e.dimensions, a.dimensions);
     EXPECT_EQ(e.kind, a.kind);
-    EXPECT_EQ(e.type_code, a.type_code);
-    EXPECT_EQ(e.type_bits, a.type_bits);
+    EXPECT_EQ(e.type.code, a.type.code);
+    EXPECT_EQ(e.type.bits, a.type.bits);
     EXPECT_EQ(e.dimensions, a.dimensions);
-    EXPECT_SCALAR_UNION_EQ(e.type_code, e.type_bits, e.def, a.def);
-    EXPECT_SCALAR_UNION_EQ(e.type_code, e.type_bits, e.min, a.min);
-    EXPECT_SCALAR_UNION_EQ(e.type_code, e.type_bits, e.max, a.max);
+    EXPECT_SCALAR_UNION_EQ(e.type.code, e.type.bits, e.def, a.def);
+    EXPECT_SCALAR_UNION_EQ(e.type.code, e.type.bits, e.min, a.min);
+    EXPECT_SCALAR_UNION_EQ(e.type.code, e.type.bits, e.max, a.max);
 }
 
 template <typename Type>
-Image<Type> make_image() {
-    Image<Type> im(kSize, kSize, 3);
+Buffer<Type> make_image() {
+    Buffer<Type> im(kSize, kSize, 3);
     for (int x = 0; x < kSize; x++) {
         for (int y = 0; y < kSize; y++) {
             for (int c = 0; c < 3; c++) {
@@ -126,7 +126,20 @@ Image<Type> make_image() {
 }
 
 template <typename InputType, typename OutputType>
-void verify(const Image<InputType> &input, const Image<OutputType> &output0, const Image<OutputType> &output1) {
+void verify(const Buffer<InputType> &input, 
+            const Buffer<OutputType> &output0, 
+            const Buffer<OutputType> &output1, 
+            const Buffer<OutputType> &output_scalar, 
+            const Buffer<OutputType> &output_array0, 
+            const Buffer<OutputType> &output_array1) {
+    if (output_scalar.dimensions() != 0) {
+        fprintf(stderr, "output_scalar should be zero-dimensional\n");
+        exit(-1);
+    }
+    if (output_scalar() != 1234.25f) {
+        fprintf(stderr, "output_scalar value is wrong (%f)\n", output_scalar());
+        exit(-1);
+    }
     for (int x = 0; x < kSize; x++) {
         for (int y = 0; y < kSize; y++) {
             for (int c = 0; c < 3; c++) {
@@ -140,6 +153,14 @@ void verify(const Image<InputType> &input, const Image<OutputType> &output0, con
                 }
                 if (expected1 != actual1) {
                     fprintf(stderr, "img1[%d, %d, %d] = %f, expected %f\n", x, y, c, (double)actual1, (double)expected1);
+                    exit(-1);
+                }
+                if (output_array0(x, y, c) != 1.5f) {
+                    fprintf(stderr, "output_array0[%d, %d, %d] = %f, expected %f\n", x, y, c, output_array0(x, y, c), 1.5f);
+                    exit(-1);
+                }
+                if (output_array1(x, y, c) != 3.0f) {
+                    fprintf(stderr, "output_array1[%d, %d, %d] = %f, expected %f\n", x, y, c, output_array1(x, y, c), 3.0f);
                     exit(-1);
                 }
             }
@@ -250,8 +271,7 @@ void check_metadata(const halide_filter_metadata_t &md, bool expect_ucon_at_0) {
           "__user_context",
           halide_argument_kind_input_scalar,
           0,
-          halide_type_handle,
-          64,
+          halide_type_t(halide_type_handle, 64),
           nullptr,
           nullptr,
           nullptr,
@@ -260,8 +280,34 @@ void check_metadata(const halide_filter_metadata_t &md, bool expect_ucon_at_0) {
           "input",
           halide_argument_kind_input_buffer,
           3,
-          halide_type_uint,
-          8,
+          halide_type_t(halide_type_uint, 8),
+          nullptr,
+          nullptr,
+          nullptr,
+        },
+        {
+          "typed_input_buffer",
+          halide_argument_kind_input_buffer,
+          3,
+          halide_type_t(halide_type_uint, 8),
+          nullptr,
+          nullptr,
+          nullptr,
+        },
+        {
+          "semityped_input_buffer",
+          halide_argument_kind_input_buffer,
+          3,
+          halide_type_t(halide_type_uint, 8),
+          nullptr,
+          nullptr,
+          nullptr,
+        },
+        {
+          "untyped_input_buffer",
+          halide_argument_kind_input_buffer,
+          3,
+          halide_type_t(halide_type_uint, 8),
           nullptr,
           nullptr,
           nullptr,
@@ -270,8 +316,7 @@ void check_metadata(const halide_filter_metadata_t &md, bool expect_ucon_at_0) {
           "b",
           halide_argument_kind_input_scalar,
           0,
-          halide_type_uint,
-          1,
+          halide_type_t(halide_type_uint, 1),
           make_scalar<bool>(true),
           nullptr,
           nullptr,
@@ -280,8 +325,7 @@ void check_metadata(const halide_filter_metadata_t &md, bool expect_ucon_at_0) {
           "i8",
           halide_argument_kind_input_scalar,
           0,
-          halide_type_int,
-          8,
+          halide_type_t(halide_type_int, 8),
           make_scalar<int8_t>(8),
           make_scalar<int8_t>(-8),
           make_scalar<int8_t>(127),
@@ -290,8 +334,7 @@ void check_metadata(const halide_filter_metadata_t &md, bool expect_ucon_at_0) {
           "i16",
           halide_argument_kind_input_scalar,
           0,
-          halide_type_int,
-          16,
+          halide_type_t(halide_type_int, 16),
           make_scalar<int16_t>(16),
           make_scalar<int16_t>(-16),
           make_scalar<int16_t>(127),
@@ -300,8 +343,7 @@ void check_metadata(const halide_filter_metadata_t &md, bool expect_ucon_at_0) {
           "i32",
           halide_argument_kind_input_scalar,
           0,
-          halide_type_int,
-          32,
+          halide_type_t(halide_type_int, 32),
           make_scalar<int32_t>(32),
           make_scalar<int32_t>(-32),
           make_scalar<int32_t>(127),
@@ -310,8 +352,7 @@ void check_metadata(const halide_filter_metadata_t &md, bool expect_ucon_at_0) {
           "i64",
           halide_argument_kind_input_scalar,
           0,
-          halide_type_int,
-          64,
+          halide_type_t(halide_type_int, 64),
           make_scalar<int64_t>(64),
           make_scalar<int64_t>(-64),
           make_scalar<int64_t>(127),
@@ -320,8 +361,7 @@ void check_metadata(const halide_filter_metadata_t &md, bool expect_ucon_at_0) {
           "u8",
           halide_argument_kind_input_scalar,
           0,
-          halide_type_uint,
-          8,
+          halide_type_t(halide_type_uint, 8),
           make_scalar<uint8_t>(80),
           make_scalar<uint8_t>(8),
           make_scalar<uint8_t>(255),
@@ -330,8 +370,7 @@ void check_metadata(const halide_filter_metadata_t &md, bool expect_ucon_at_0) {
           "u16",
           halide_argument_kind_input_scalar,
           0,
-          halide_type_uint,
-          16,
+          halide_type_t(halide_type_uint, 16),
           make_scalar<uint16_t>(160),
           make_scalar<uint16_t>(16),
           make_scalar<uint16_t>(2550),
@@ -340,8 +379,7 @@ void check_metadata(const halide_filter_metadata_t &md, bool expect_ucon_at_0) {
           "u32",
           halide_argument_kind_input_scalar,
           0,
-          halide_type_uint,
-          32,
+          halide_type_t(halide_type_uint, 32),
           make_scalar<uint32_t>(320),
           make_scalar<uint32_t>(32),
           make_scalar<uint32_t>(2550),
@@ -350,8 +388,7 @@ void check_metadata(const halide_filter_metadata_t &md, bool expect_ucon_at_0) {
           "u64",
           halide_argument_kind_input_scalar,
           0,
-          halide_type_uint,
-          64,
+          halide_type_t(halide_type_uint, 64),
           make_scalar<uint64_t>(640),
           make_scalar<uint64_t>(64),
           make_scalar<uint64_t>(2550),
@@ -360,8 +397,7 @@ void check_metadata(const halide_filter_metadata_t &md, bool expect_ucon_at_0) {
           "f32",
           halide_argument_kind_input_scalar,
           0,
-          halide_type_float,
-          32,
+          halide_type_t(halide_type_float, 32),
           make_scalar<float>(32.1234f),
           make_scalar<float>(-3200.1234f),
           make_scalar<float>(3200.1234f),
@@ -370,8 +406,7 @@ void check_metadata(const halide_filter_metadata_t &md, bool expect_ucon_at_0) {
           "f64",
           halide_argument_kind_input_scalar,
           0,
-          halide_type_float,
-          64,
+          halide_type_t(halide_type_float, 64),
           make_scalar<double>(64.25),
           make_scalar<double>(-6400.25),
           make_scalar<double>(6400.25),
@@ -380,8 +415,196 @@ void check_metadata(const halide_filter_metadata_t &md, bool expect_ucon_at_0) {
           "h",
           halide_argument_kind_input_scalar,
           0,
-          halide_type_handle,
-          64,
+          halide_type_t(halide_type_handle, 64),
+          nullptr,
+          nullptr,
+          nullptr,
+        },
+        {
+          "input_not_nod",
+          halide_argument_kind_input_buffer,
+          3,
+          halide_type_t(halide_type_uint, 8),
+          nullptr,
+          nullptr,
+          nullptr,
+        },
+        {
+          "input_nod",
+          halide_argument_kind_input_buffer,
+          3,
+          halide_type_t(halide_type_uint, 8),
+          nullptr,
+          nullptr,
+          nullptr,
+        },
+        {
+          "input_not",
+          halide_argument_kind_input_buffer,
+          3,
+          halide_type_t(halide_type_uint, 8),
+          nullptr,
+          nullptr,
+          nullptr,
+        },
+        {
+          "array_input_0",
+          halide_argument_kind_input_buffer,
+          3,
+          halide_type_t(halide_type_uint, 8),
+          nullptr,
+          nullptr,
+          nullptr,
+        },
+        {
+          "array_input_1",
+          halide_argument_kind_input_buffer,
+          3,
+          halide_type_t(halide_type_uint, 8),
+          nullptr,
+          nullptr,
+          nullptr,
+        },
+        {
+          "array2_input_0",
+          halide_argument_kind_input_buffer,
+          3,
+          halide_type_t(halide_type_uint, 8),
+          nullptr,
+          nullptr,
+          nullptr,
+        },
+        {
+          "array2_input_1",
+          halide_argument_kind_input_buffer,
+          3,
+          halide_type_t(halide_type_uint, 8),
+          nullptr,
+          nullptr,
+          nullptr,
+        },
+        {
+          "array_i8_0",
+          halide_argument_kind_input_scalar,
+          0,
+          halide_type_t(halide_type_int, 8),
+          make_scalar<int8_t>(0),
+          nullptr,
+          nullptr,
+        },
+        {
+          "array_i8_1",
+          halide_argument_kind_input_scalar,
+          0,
+          halide_type_t(halide_type_int, 8),
+          make_scalar<int8_t>(0),
+          nullptr,
+          nullptr,
+        },
+        {
+          "array2_i8_0",
+          halide_argument_kind_input_scalar,
+          0,
+          halide_type_t(halide_type_int, 8),
+          make_scalar<int8_t>(0),
+          nullptr,
+          nullptr,
+        },
+        {
+          "array2_i8_1",
+          halide_argument_kind_input_scalar,
+          0,
+          halide_type_t(halide_type_int, 8),
+          make_scalar<int8_t>(0),
+          nullptr,
+          nullptr,
+        },
+        {
+          "array_i16_0",
+          halide_argument_kind_input_scalar,
+          0,
+          halide_type_t(halide_type_int, 16),
+          make_scalar<int16_t>(16),
+          nullptr,
+          nullptr,
+        },
+        {
+          "array_i16_1",
+          halide_argument_kind_input_scalar,
+          0,
+          halide_type_t(halide_type_int, 16),
+          make_scalar<int16_t>(16),
+          nullptr,
+          nullptr,
+        },
+        {
+          "array2_i16_0",
+          halide_argument_kind_input_scalar,
+          0,
+          halide_type_t(halide_type_int, 16),
+          make_scalar<int16_t>(16),
+          nullptr,
+          nullptr,
+        },
+        {
+          "array2_i16_1",
+          halide_argument_kind_input_scalar,
+          0,
+          halide_type_t(halide_type_int, 16),
+          make_scalar<int16_t>(16),
+          nullptr,
+          nullptr,
+        },
+        {
+          "array_i32_0",
+          halide_argument_kind_input_scalar,
+          0,
+          halide_type_t(halide_type_int, 32),
+          make_scalar<int32_t>(32),
+          make_scalar<int32_t>(-32),
+          make_scalar<int32_t>(127),
+        },
+        {
+          "array_i32_1",
+          halide_argument_kind_input_scalar,
+          0,
+          halide_type_t(halide_type_int, 32),
+          make_scalar<int32_t>(32),
+          make_scalar<int32_t>(-32),
+          make_scalar<int32_t>(127),
+        },
+        {
+          "array2_i32_0",
+          halide_argument_kind_input_scalar,
+          0,
+          halide_type_t(halide_type_int, 32),
+          make_scalar<int32_t>(32),
+          make_scalar<int32_t>(-32),
+          make_scalar<int32_t>(127),
+        },
+        {
+          "array2_i32_1",
+          halide_argument_kind_input_scalar,
+          0,
+          halide_type_t(halide_type_int, 32),
+          make_scalar<int32_t>(32),
+          make_scalar<int32_t>(-32),
+          make_scalar<int32_t>(127),
+        },
+        {
+          "array_h_0",
+          halide_argument_kind_input_scalar,
+          0,
+          halide_type_t(halide_type_handle, 64),
+          nullptr,
+          nullptr,
+          nullptr,
+        },
+        {
+          "array_h_1",
+          halide_argument_kind_input_scalar,
+          0,
+          halide_type_t(halide_type_handle, 64),
           nullptr,
           nullptr,
           nullptr,
@@ -390,8 +613,7 @@ void check_metadata(const halide_filter_metadata_t &md, bool expect_ucon_at_0) {
           "output.0",
           halide_argument_kind_output_buffer,
           3,
-          halide_type_float,
-          32,
+          halide_type_t(halide_type_float, 32),
           nullptr,
           nullptr,
           nullptr,
@@ -400,8 +622,88 @@ void check_metadata(const halide_filter_metadata_t &md, bool expect_ucon_at_0) {
           "output.1",
           halide_argument_kind_output_buffer,
           3,
-          halide_type_float,
-          32,
+          halide_type_t(halide_type_float, 32),
+          nullptr,
+          nullptr,
+          nullptr,
+        },
+        {
+          "typed_output_buffer",
+          halide_argument_kind_output_buffer,
+          3,
+          halide_type_t(halide_type_float, 32),
+          nullptr,
+          nullptr,
+          nullptr,
+        },
+        {
+          "untyped_output_buffer",
+          halide_argument_kind_output_buffer,
+          3,
+          halide_type_t(halide_type_float, 32),
+          nullptr,
+          nullptr,
+          nullptr,
+        },
+        {
+          "output_scalar",
+          halide_argument_kind_output_buffer,
+          0,
+          halide_type_t(halide_type_float, 32),
+          nullptr,
+          nullptr,
+          nullptr,
+        },
+        {
+          "array_outputs_0",
+          halide_argument_kind_output_buffer,
+          3,
+          halide_type_t(halide_type_float, 32),
+          nullptr,
+          nullptr,
+          nullptr,
+        },
+        {
+          "array_outputs_1",
+          halide_argument_kind_output_buffer,
+          3,
+          halide_type_t(halide_type_float, 32),
+          nullptr,
+          nullptr,
+          nullptr,
+        },
+        {
+          "array_outputs2_0",
+          halide_argument_kind_output_buffer,
+          3,
+          halide_type_t(halide_type_float, 32),
+          nullptr,
+          nullptr,
+          nullptr,
+        },
+        {
+          "array_outputs2_1",
+          halide_argument_kind_output_buffer,
+          3,
+          halide_type_t(halide_type_float, 32),
+          nullptr,
+          nullptr,
+          nullptr,
+        },
+        {
+          "array_outputs3_0",
+          halide_argument_kind_output_buffer,
+          0,
+          halide_type_t(halide_type_float, 32),
+          nullptr,
+          nullptr,
+          nullptr,
+        },
+        {
+          "array_outputs3_1",
+          halide_argument_kind_output_buffer,
+          0,
+          halide_type_t(halide_type_float, 32),
           nullptr,
           nullptr,
           nullptr,
@@ -424,38 +726,102 @@ void check_metadata(const halide_filter_metadata_t &md, bool expect_ucon_at_0) {
     }
 }
 
-int EnumerateFunc(void* enumerate_context,
-    const halide_filter_metadata_t *metadata,
-    int (*argv_func)(void **args)) {
-  std::map<std::string, int> &enum_results = *reinterpret_cast<std::map<std::string, int>*>(enumerate_context);
-  enum_results[metadata->name] = metadata->num_arguments;
-  return 0;
-}
-
 int main(int argc, char **argv) {
     void* user_context = nullptr;
 
     int result;
 
-    std::map<std::string, int> enum_results;
-    result = halide_enumerate_registered_filters(user_context, &enum_results, EnumerateFunc);
+    Buffer<uint8_t> input = make_image<uint8_t>();
+
+    Buffer<float> output0(kSize, kSize, 3);
+    Buffer<float> output1(kSize, kSize, 3);
+    Buffer<float> typed_output_buffer(kSize, kSize, 3);
+    Buffer<float> untyped_output_buffer(kSize, kSize, 3);
+    Buffer<float> output_scalar = Buffer<float>::make_scalar();
+    Buffer<float> output_array[2] = {{kSize, kSize, 3}, {kSize, kSize, 3}};
+    Buffer<float> output_array2[2] = {{kSize, kSize, 3}, {kSize, kSize, 3}};
+    Buffer<float> output_array3[2] = {{1}, {1}};
+
+    result = metadata_tester(
+        input,             // Input<Func>
+        input,             // Input<Buffer<uint8_t>>
+        input,             // Input<Buffer<>>(uint8)
+        input,             // Input<Buffer<>>
+        false,             // Input<bool>
+        0,                 // Input<i8>
+        0,                 // Input<i16>
+        0,                 // Input<i32>
+        0,                 // Input<i64>
+        0,                 // Input<u8>
+        0,                 // Input<u16>
+        0,                 // Input<u32>
+        0,                 // Input<u64>
+        0.f,               // Input<float>
+        0.0,               // Input<double>
+        nullptr,           // Input<void*>
+        input,             // Input<Func> 
+        input,             // Input<Func> 
+        input,             // Input<Func> 
+        input, input,      // Input<Func[]>
+        input, input,      // Input<Func[2]>
+        0, 0,              // Input<int8_t[]>
+        0, 0,              // Input<int8_t[2]>
+        0, 0,              // Input<int16_t[]>
+        0, 0,              // Input<int16_t[2]>
+        0, 0,              // Input<int32_t[]>
+        0, 0,              // Input<int32_t[2]>
+        nullptr, nullptr,  // Input<void*[]>
+        output0, output1,  // Output<Tuple(Func, Func)>
+        typed_output_buffer,    // Output<Buffer<float>>
+        untyped_output_buffer,  // Output<Buffer<>>
+        output_scalar,     // Output<float>
+        output_array[0], output_array[1],   // Output<Func[]>
+        output_array2[0], output_array2[1], // Output<Func[2]>
+        output_array3[0], output_array3[1]  // Output<float[2]>
+    );  
     EXPECT_EQ(0, result);
-    EXPECT_EQ(2, enum_results.size());
-    EXPECT_EQ(15, enum_results["metadata_tester"]);
-    EXPECT_EQ(16, enum_results["metadata_tester_ucon"]);
 
-    const Image<uint8_t> input = make_image<uint8_t>();
-
-    Image<float> output0(kSize, kSize, 3);
-    Image<float> output1(kSize, kSize, 3);
-
-    result = metadata_tester(input, false, 0, 0, 0, 0, 0, 0, 0, 0, 0.f, 0.0, nullptr, output0, output1);
+    result = metadata_tester_ucon(
+        user_context, 
+        input,             // Input<Func>
+        input,             // Input<Buffer<uint8_t>>
+        input,             // Input<Buffer<>>(uint8)
+        input,             // Input<Buffer<>>
+        false,             // Input<bool>
+        0,                 // Input<i8>
+        0,                 // Input<i16>
+        0,                 // Input<i32>
+        0,                 // Input<i64>
+        0,                 // Input<u8>
+        0,                 // Input<u16>
+        0,                 // Input<u32>
+        0,                 // Input<u64>
+        0.f,               // Input<float>
+        0.0,               // Input<double>
+        nullptr,           // Input<void*>
+        input,             // Input<Func> 
+        input,             // Input<Func> 
+        input,             // Input<Func> 
+        input, input,      // Input<Func[]>
+        input, input,      // Input<Func[2]>
+        0, 0,              // Input<int8_t[]>
+        0, 0,              // Input<int8_t[2]>
+        0, 0,              // Input<int16_t[]>
+        0, 0,              // Input<int16_t[2]>
+        0, 0,              // Input<int32_t[]>
+        0, 0,              // Input<int32_t[2]>
+        nullptr, nullptr,  // Input<void*[]>
+        output0, output1,  // Output<Tuple(Func, Func)>
+        typed_output_buffer,    // Output<Buffer<float>>
+        untyped_output_buffer,  // Output<Buffer<>>
+        output_scalar,     // Output<float>
+        output_array[0], output_array[1],    // Output<Func[]>
+        output_array2[0], output_array2[1], // Output<Func[2]>
+        output_array3[0], output_array3[1]  // Output<float[2]>
+    );
     EXPECT_EQ(0, result);
 
-    result = metadata_tester_ucon(user_context, input, false, 0, 0, 0, 0, 0, 0, 0, 0, 0.f, 0.0, nullptr, output0, output1);
-    EXPECT_EQ(0, result);
-
-    verify(input, output0, output1);
+    verify(input, output0, output1, output_scalar, output_array[0], output_array[1]);
 
     check_metadata(*metadata_tester_metadata(), false);
     if (!strcmp(metadata_tester_metadata()->name, "metadata_tester_metadata")) {

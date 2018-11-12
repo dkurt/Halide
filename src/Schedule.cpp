@@ -1,9 +1,61 @@
+#include "Func.h"
+#include "Function.h"
 #include "IR.h"
 #include "IRMutator.h"
 #include "Schedule.h"
-#include "Reduction.h"
+#include "Var.h"
 
 namespace Halide {
+
+LoopLevel::LoopLevel(const std::string &func_name,
+                     const std::string &var_name,
+                     bool is_rvar)
+    : func_name(func_name), var_name(var_name), is_rvar(is_rvar) {}
+LoopLevel::LoopLevel(Internal::Function f, VarOrRVar v) : LoopLevel(f.name(), v.name(), v.is_rvar) {}
+LoopLevel::LoopLevel(Func f, VarOrRVar v) : LoopLevel(f.function().name(), v.name(), v.is_rvar) {}
+
+std::string LoopLevel::func() const {
+    return func_name;
+}
+
+VarOrRVar LoopLevel::var() const {
+    internal_assert(!is_inline() && !is_root());
+    return VarOrRVar(var_name, is_rvar);
+}
+
+bool LoopLevel::is_inline() const {
+    return var_name.empty();
+}
+
+/*static*/
+LoopLevel LoopLevel::root() {
+    return LoopLevel("", "__root", false);
+}
+
+bool LoopLevel::is_root() const {
+    return var_name == "__root";
+}
+
+std::string LoopLevel::to_string() const {
+    return func_name + "." + var_name;
+}
+
+bool LoopLevel::match(const std::string &loop) const {
+    return Internal::starts_with(loop, func_name + ".") &&
+           Internal::ends_with(loop, "." + var_name);
+}
+
+bool LoopLevel::match(const LoopLevel &other) const {
+    return (func_name == other.func_name &&
+            (var_name == other.var_name ||
+             Internal::ends_with(var_name, "." + other.var_name) ||
+             Internal::ends_with(other.var_name, "." + var_name)));
+}
+
+bool LoopLevel::operator==(const LoopLevel &other) const {
+    return func_name == other.func_name && var_name == other.var_name;
+}
+
 namespace Internal {
 
 typedef std::map<IntrusivePtr<FunctionContents>, IntrusivePtr<FunctionContents>> DeepCopyMap;
@@ -18,13 +70,13 @@ struct ScheduleContents {
     mutable RefCount ref_count;
 
     LoopLevel store_level, compute_level;
+    std::vector<ReductionVariable> rvars;
     std::vector<Split> splits;
     std::vector<Dim> dims;
     std::vector<StorageDim> storage_dims;
     std::vector<Bound> bounds;
-    std::vector<Specialization> specializations;
+    std::vector<Prefetch> prefetches;
     std::map<std::string, IntrusivePtr<Internal::FunctionContents>> wrappers;
-    ReductionDomain reduction_domain;
     bool memoized;
     bool touched;
     bool allow_race_conditions;
@@ -33,6 +85,14 @@ struct ScheduleContents {
 
     // Pass an IRMutator through to all Exprs referenced in the ScheduleContents
     void mutate(IRMutator *mutator) {
+        for (ReductionVariable &r : rvars) {
+            if (r.min.defined()) {
+                r.min = mutator->mutate(r.min);
+            }
+            if (r.extent.defined()) {
+                r.extent = mutator->mutate(r.extent);
+            }
+        }
         for (Split &s : splits) {
             if (s.factor.defined()) {
                 s.factor = mutator->mutate(s.factor);
@@ -45,15 +105,18 @@ struct ScheduleContents {
             if (b.extent.defined()) {
                 b.extent = mutator->mutate(b.extent);
             }
-        }
-        for (Specialization &s : specializations) {
-            if (s.condition.defined()) {
-                s.condition = mutator->mutate(s.condition);
+            if (b.modulus.defined()) {
+                b.modulus = mutator->mutate(b.modulus);
             }
-            internal_assert(s.schedule.defined());
-            s.schedule->mutate(mutator);
+            if (b.remainder.defined()) {
+                b.remainder = mutator->mutate(b.remainder);
+            }
         }
-        reduction_domain.mutate(mutator);
+        for (Prefetch &p : prefetches) {
+            if (p.offset.defined()) {
+                p.offset = mutator->mutate(p.offset);
+            }
+        }
     }
 };
 
@@ -68,63 +131,38 @@ EXPORT void destroy<ScheduleContents>(const ScheduleContents *p) {
     delete p;
 }
 
-namespace {
-
-// Deep-copy ScheduleContents from 'src' to 'dst'
-void deep_copy_schedule_contents_helper(
-        IntrusivePtr<ScheduleContents> &dst, const IntrusivePtr<ScheduleContents> &src,
-        DeepCopyMap &copied_map) {
-
-    if (!src.defined()) {
-        dst = src;
-        return;
-    }
-    dst = IntrusivePtr<ScheduleContents>(new ScheduleContents);
-    dst->store_level = src->store_level;
-    dst->compute_level = src->compute_level;
-    dst->splits = src->splits;
-    dst->dims = src->dims;
-    dst->storage_dims = src->storage_dims;
-    dst->bounds = src->bounds;
-    dst->reduction_domain = src->reduction_domain.deep_copy();
-    dst->memoized = src->memoized;
-    dst->touched = src->touched;
-    dst->allow_race_conditions = src->allow_race_conditions;
-
-    // Deep-copy wrapper functions. If function has already been deep-copied before,
-    // i.e. it's in the 'copied_map', use the deep-copied version from the map instead
-    // of creating a new deep-copy
-    for (const auto &iter : src->wrappers) {
-        IntrusivePtr<FunctionContents> &copied_func = copied_map[iter.second];
-        if (copied_func.defined()) {
-            dst->wrappers[iter.first] = copied_func;
-        } else {
-            dst->wrappers[iter.first] = deep_copy_function_contents_helper(iter.second, copied_map);
-            copied_map[iter.second] = dst->wrappers[iter.first];
-        }
-    }
-    internal_assert(dst->wrappers.size() == src->wrappers.size());
-
-    // Deep-copy specializations
-    for (const auto &s : src->specializations) {
-        Specialization s_copy;
-        s_copy.condition = s.condition;
-        s_copy.schedule = IntrusivePtr<ScheduleContents>(new ScheduleContents);
-        deep_copy_schedule_contents_helper(s_copy.schedule, s.schedule, copied_map);
-        dst->specializations.push_back(std::move(s_copy));
-    }
-}
-
-}
-
 Schedule::Schedule() : contents(new ScheduleContents) {}
 
 Schedule Schedule::deep_copy(
         std::map<IntrusivePtr<FunctionContents>, IntrusivePtr<FunctionContents>> &copied_map) const {
 
+    internal_assert(contents.defined()) << "Cannot deep-copy undefined Schedule\n";
     Schedule copy;
-    internal_assert(copy.contents.defined() && contents.defined()) << "Cannot deep-copy undefined Schedule\n";
-    deep_copy_schedule_contents_helper(copy.contents, contents, copied_map);
+    copy.contents->store_level = contents->store_level;
+    copy.contents->compute_level = contents->compute_level;
+    copy.contents->rvars = contents->rvars;
+    copy.contents->splits = contents->splits;
+    copy.contents->dims = contents->dims;
+    copy.contents->storage_dims = contents->storage_dims;
+    copy.contents->bounds = contents->bounds;
+    copy.contents->prefetches = contents->prefetches;
+    copy.contents->memoized = contents->memoized;
+    copy.contents->touched = contents->touched;
+    copy.contents->allow_race_conditions = contents->allow_race_conditions;
+
+    // Deep-copy wrapper functions. If function has already been deep-copied before,
+    // i.e. it's in the 'copied_map', use the deep-copied version from the map instead
+    // of creating a new deep-copy
+    for (const auto &iter : contents->wrappers) {
+        IntrusivePtr<FunctionContents> &copied_func = copied_map[iter.second];
+        if (copied_func.defined()) {
+            copy.contents->wrappers[iter.first] = copied_func;
+        } else {
+            copy.contents->wrappers[iter.first] = deep_copy_function_contents_helper(iter.second, copied_map);
+            copied_map[iter.second] = copy.contents->wrappers[iter.first];
+        }
+    }
+    internal_assert(copy.contents->wrappers.size() == contents->wrappers.size());
     return copy;
 }
 
@@ -176,29 +214,24 @@ const std::vector<Bound> &Schedule::bounds() const {
     return contents->bounds;
 }
 
-const std::vector<Specialization> &Schedule::specializations() const {
-    return contents->specializations;
+std::vector<Prefetch> &Schedule::prefetches() {
+    return contents->prefetches;
 }
 
-const Specialization &Schedule::add_specialization(Expr condition) {
-    Specialization s;
-    s.condition = condition;
-    s.schedule = IntrusivePtr<ScheduleContents>(new ScheduleContents);
+const std::vector<Prefetch> &Schedule::prefetches() const {
+    return contents->prefetches;
+}
 
-    // The sub-schedule inherits everything about its parent except for its specializations.
-    s.schedule->store_level      = contents->store_level;
-    s.schedule->compute_level    = contents->compute_level;
-    s.schedule->splits           = contents->splits;
-    s.schedule->dims             = contents->dims;
-    s.schedule->storage_dims     = contents->storage_dims;
-    s.schedule->bounds           = contents->bounds;
-    s.schedule->reduction_domain = contents->reduction_domain;
-    s.schedule->memoized         = contents->memoized;
-    s.schedule->touched          = contents->touched;
-    s.schedule->allow_race_conditions = contents->allow_race_conditions;
+std::vector<ReductionVariable> &Schedule::rvars() {
+    return contents->rvars;
+}
 
-    contents->specializations.push_back(s);
-    return contents->specializations.back();
+const std::vector<ReductionVariable> &Schedule::rvars() const {
+    return contents->rvars;
+}
+
+std::map<std::string, IntrusivePtr<Internal::FunctionContents>> &Schedule::wrappers() {
+    return contents->wrappers;
 }
 
 const std::map<std::string, IntrusivePtr<Internal::FunctionContents>> &Schedule::wrappers() const {
@@ -218,7 +251,6 @@ void Schedule::add_wrapper(const std::string &f,
     contents->wrappers[f] = wrapper;
 }
 
-
 LoopLevel &Schedule::store_level() {
     return contents->store_level;
 }
@@ -235,15 +267,6 @@ const LoopLevel &Schedule::compute_level() const {
     return contents->compute_level;
 }
 
-
-const ReductionDomain &Schedule::reduction_domain() const {
-    return contents->reduction_domain;
-}
-
-void Schedule::set_reduction_domain(const ReductionDomain &d) {
-    contents->reduction_domain = d;
-}
-
 bool &Schedule::allow_race_conditions() {
     return contents->allow_race_conditions;
 }
@@ -253,6 +276,14 @@ bool Schedule::allow_race_conditions() const {
 }
 
 void Schedule::accept(IRVisitor *visitor) const {
+    for (const ReductionVariable &r : rvars()) {
+        if (r.min.defined()) {
+            r.min.accept(visitor);
+        }
+        if (r.extent.defined()) {
+            r.extent.accept(visitor);
+        }
+    }
     for (const Split &s : splits()) {
         if (s.factor.defined()) {
             s.factor.accept(visitor);
@@ -265,9 +296,17 @@ void Schedule::accept(IRVisitor *visitor) const {
         if (b.extent.defined()) {
             b.extent.accept(visitor);
         }
+        if (b.modulus.defined()) {
+            b.modulus.accept(visitor);
+        }
+        if (b.remainder.defined()) {
+            b.remainder.accept(visitor);
+        }
     }
-    for (const Specialization &s : specializations()) {
-        s.condition.accept(visitor);
+    for (const Prefetch &p : prefetches()) {
+        if (p.offset.defined()) {
+            p.offset.accept(visitor);
+        }
     }
 }
 
@@ -277,5 +316,5 @@ void Schedule::mutate(IRMutator *mutator) {
     }
 }
 
-}
-}
+}  // namespace Internal
+}  // namespace Halide

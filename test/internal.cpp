@@ -14,6 +14,9 @@
 #include "Solve.h"
 #include "Monotonic.h"
 #include "Reduction.h"
+#include "Interval.h"
+#include "Associativity.h"
+#include "Generator.h"
 
 using namespace Halide;
 using namespace Halide::Internal;
@@ -33,6 +36,9 @@ int main(int argc, const char **argv) {
     cplusplus_mangle_test();
     is_monotonic_test();
     split_predicate_test();
+    interval_test();
+    associativity_test();
+    generator_test();
 
     return 0;
 }

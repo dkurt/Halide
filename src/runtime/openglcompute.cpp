@@ -1,4 +1,5 @@
 #include "HalideRuntimeOpenGLCompute.h"
+#include "device_buffer_utils.h"
 #include "device_interface.h"
 #include "printer.h"
 #include "mini_opengl.h"
@@ -46,7 +47,7 @@ using namespace Halide::Runtime::Internal;
 
 namespace Halide { namespace Runtime { namespace Internal { namespace OpenGLCompute {
 
-extern WEAK halide_device_interface openglcompute_device_interface;
+extern WEAK halide_device_interface_t openglcompute_device_interface;
 
 WEAK const char *gl_error_name(int32_t err) {
   switch (err) {
@@ -226,21 +227,6 @@ WEAK int halide_openglcompute_device_release(void *user_context) {
     return 0;
 }
 
-namespace {
-size_t buf_size(void *user_context, buffer_t *buf) {
-    size_t size = buf->elem_size;
-    for (size_t i = 0; i < sizeof(buf->stride) / sizeof(buf->stride[0]); i++) {
-        size_t total_dim_size =
-            buf->elem_size * buf->extent[i] * buf->stride[i];
-        if (total_dim_size > size) {
-            size = total_dim_size;
-        }
-    }
-    halide_assert(user_context, size);
-    return size;
-};
-}
-
 // Allocate a new texture matching the dimension and color format of the
 // specified buffer.
 WEAK int halide_openglcompute_device_malloc(void *user_context, buffer_t *buf) {
@@ -251,12 +237,12 @@ WEAK int halide_openglcompute_device_malloc(void *user_context, buffer_t *buf) {
     debug(user_context) << "OpenGLCompute: halide_openglcompute_device_malloc (user_context: "
                         << user_context << ", buf: " << buf << ")\n";
 
-    if (!global_state.initialized) {
-        error(user_context) << "OpenGL runtime not initialized (halide_openglcompute_copy_to_device).";
-        return 1;
+    if (int error = halide_openglcompute_init(user_context)) {
+        return error;
     }
 
-    size_t size = buf_size(user_context, buf);
+    size_t size = buf_size(buf);
+    halide_assert(user_context, size != 0);
 
     if (buf->dev) {
         // This buffer already has a device allocation
@@ -293,8 +279,9 @@ WEAK int halide_openglcompute_device_malloc(void *user_context, buffer_t *buf) {
     if (global_state.CheckAndReportError(user_context, "oglc: GenBuffers")) { return 1; }
     global_state.BindBuffer(GL_ARRAY_BUFFER, the_buffer);
     if (global_state.CheckAndReportError(user_context, "oglc: BindBuffer")) { return 1; }
-    size_t sizeInBytes = buf_size(user_context, buf);
-    global_state.BufferData(GL_ARRAY_BUFFER, sizeInBytes, NULL, GL_DYNAMIC_COPY);
+    size_t size_in_bytes = buf_size(buf);
+    halide_assert(user_context, size_in_bytes != 0);
+    global_state.BufferData(GL_ARRAY_BUFFER, size_in_bytes, NULL, GL_DYNAMIC_COPY);
     if (global_state.CheckAndReportError(user_context, "oglc: BufferData")) { return 1; }
 
     buf->dev = halide_new_device_wrapper(the_buffer, &openglcompute_device_interface);
@@ -365,7 +352,8 @@ WEAK int halide_openglcompute_copy_to_device(void *user_context, buffer_t *buf) 
     global_state.BindBuffer(GL_ARRAY_BUFFER, the_buffer);
     if (global_state.CheckAndReportError(user_context, "oglc: BindBuffer")) { return 1; }
 
-    size_t size = buf_size(user_context, buf);
+    size_t size = buf_size(buf);
+    halide_assert(user_context, size != 0);
     global_state.BufferData(GL_ARRAY_BUFFER, size, buf->host, GL_DYNAMIC_COPY);
     if (global_state.CheckAndReportError(user_context, "oglc: BufferData")) { return 1; }
 
@@ -391,7 +379,8 @@ WEAK int halide_openglcompute_copy_to_host(void *user_context, buffer_t *buf) {
     }
 
     GLuint the_buffer = halide_get_device_handle(buf->dev);
-    size_t size = buf_size(user_context, buf);
+    size_t size = buf_size(buf);
+    halide_assert(user_context, size != 0);
     debug(user_context) << "OGLC: halide_openglcompute_copy_to_host ("
                         << "user_context: " << user_context
                         << ", buf: " << buf
@@ -660,7 +649,15 @@ WEAK int halide_openglcompute_initialize_kernels(void *user_context, void **stat
    return 0;
 }
 
-WEAK const struct halide_device_interface *halide_openglcompute_device_interface() {
+WEAK int halide_openglcompute_device_and_host_malloc(void *user_context, struct buffer_t *buf) {
+    return halide_default_device_and_host_malloc(user_context, buf, &openglcompute_device_interface);
+}
+
+WEAK int halide_openglcompute_device_and_host_free(void *user_context, struct buffer_t *buf) {
+    return halide_default_device_and_host_free(user_context, buf, &openglcompute_device_interface);
+}
+
+WEAK const struct halide_device_interface_t *halide_openglcompute_device_interface() {
     return &openglcompute_device_interface;
 }
 
@@ -671,7 +668,7 @@ WEAK const struct halide_device_interface *halide_openglcompute_device_interface
 
 namespace Halide { namespace Runtime { namespace Internal { namespace OpenGLCompute {
 
-WEAK halide_device_interface openglcompute_device_interface = {
+WEAK halide_device_interface_t openglcompute_device_interface = {
     halide_use_jit_module,
     halide_release_jit_module,
     halide_openglcompute_device_malloc,
@@ -680,6 +677,8 @@ WEAK halide_device_interface openglcompute_device_interface = {
     halide_openglcompute_device_release,
     halide_openglcompute_copy_to_host,
     halide_openglcompute_copy_to_device,
+    halide_openglcompute_device_and_host_malloc,
+    halide_openglcompute_device_and_host_free,
 };
 
 }}}} // namespace Halide::Runtime::Internal::OpenGLCompute

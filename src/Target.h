@@ -22,19 +22,18 @@ struct Target {
     /** The operating system used by the target. Determines which
      * system calls to generate.
      * Corresponds to os_name_map in Target.cpp. */
-    enum OS {OSUnknown = 0, Linux, Windows, OSX, Android, IOS, NaCl} os;
+    enum OS {OSUnknown = 0, Linux, Windows, OSX, Android, IOS, QuRT, NoOS} os;
 
     /** The architecture used by the target. Determines the
-     * instruction set to use. For the PNaCl target, the "instruction
-     * set" is actually llvm bitcode.
+     * instruction set to use.
      * Corresponds to arch_name_map in Target.cpp. */
-    enum Arch {ArchUnknown = 0, X86, ARM, PNaCl, MIPS, POWERPC} arch;
+    enum Arch {ArchUnknown = 0, X86, ARM, MIPS, Hexagon, POWERPC} arch;
 
     /** The bit-width of the target machine. Must be 0 for unknown, or 32 or 64. */
     int bits;
 
     /** Optional features a target can have.
-     * Corresponds to feature_name_map in Target.cpp. 
+     * Corresponds to feature_name_map in Target.cpp.
      * See definitions in HalideRuntime.h for full information.
      */
     enum Feature {
@@ -61,18 +60,26 @@ struct Target {
         CLDoubles = halide_target_feature_cl_doubles,
         OpenGL = halide_target_feature_opengl,
         OpenGLCompute = halide_target_feature_openglcompute,
-        Renderscript = halide_target_feature_renderscript,
         UserContext = halide_target_feature_user_context,
-        RegisterMetadata = halide_target_feature_register_metadata,
         Matlab = halide_target_feature_matlab,
         Profile = halide_target_feature_profile,
         NoRuntime = halide_target_feature_no_runtime,
         Metal = halide_target_feature_metal,
         MinGW = halide_target_feature_mingw,
         CPlusPlusMangling = halide_target_feature_c_plus_plus_mangling,
+        LargeBuffers = halide_target_feature_large_buffers,
+        HVX_64 = halide_target_feature_hvx_64,
+        HVX_128 = halide_target_feature_hvx_128,
+        HVX_v62 = halide_target_feature_hvx_v62,
+        FuzzFloatStores = halide_target_feature_fuzz_float_stores,
+        SoftFloatABI = halide_target_feature_soft_float_abi,
+        MSAN = halide_target_feature_msan,
+        AVX512 = halide_target_feature_avx512,
+        AVX512_KNL = halide_target_feature_avx512_knl,
+        AVX512_Skylake = halide_target_feature_avx512_skylake,
+        AVX512_Cannonlake = halide_target_feature_avx512_cannonlake,
         FeatureEnd = halide_target_feature_end
     };
-
     Target() : os(OSUnknown), arch(ArchUnknown), bits(0) {}
     Target(OS o, Arch a, int b, std::vector<Feature> initial_features = std::vector<Feature>())
         : os(o), arch(a), bits(b) {
@@ -80,6 +87,24 @@ struct Target {
             set_feature(initial_features[i]);
         }
     }
+
+    /** Given a string of the form used in HL_TARGET
+     * (e.g. "x86-64-avx"), construct the Target it specifies. Note
+     * that this always starts with the result of get_host_target(),
+     * replacing only the parts found in the target string, so if you
+     * omit (say) an OS specification, the host OS will be used
+     * instead. An empty string is exactly equivalent to
+     * get_host_target().
+     *
+     * Invalid target strings will fail with a user_error.
+     */
+    // @{
+    EXPORT explicit Target(const std::string &s);
+    EXPORT explicit Target(const char *s);
+    // @}
+
+    /** Check if a target string is valid. */
+    EXPORT static bool validate_target_string(const std::string &s);
 
     void set_feature(Feature f, bool value = true) {
         if (f == FeatureEnd) return;
@@ -144,14 +169,14 @@ struct Target {
      * Func::gpu_tile.
      * TODO: Should OpenGLCompute be included here? */
     bool has_gpu_feature() const {
-      return has_feature(CUDA) || has_feature(OpenCL) || has_feature(Metal);
+        return has_feature(CUDA) || has_feature(OpenCL) || has_feature(Metal);
     }
 
     /** Does this target allow using a certain type. Generally all
      * types except 64-bit float and int/uint should be supported by
      * all backends.
      */
-    bool supports_type(const Type &t) {
+    bool supports_type(const Type &t) const {
         if (t.bits() == 64) {
             if (t.is_float()) {
                 return !has_feature(Metal) &&
@@ -183,63 +208,64 @@ struct Target {
      *
      *   arch-bits-os-feature1-feature2...featureN.
      *
-     * Note that is guaranteed that t2.from_string(t1.to_string()) == t1,
-     * but not that from_string(s).to_string() == s (since there can be
+     * Note that is guaranteed that Target(t1.to_string()) == t1,
+     * but not that Target(s).to_string() == s (since there can be
      * multiple strings that parse to the same Target)...
      * *unless* t1 contains 'unknown' fields (in which case you'll get a string
      * that can't be parsed, which is intentional).
      */
     EXPORT std::string to_string() const;
 
-    /**
-     * Parse the contents of 'target' and merge into 'this',
-     * replacing only the parts that are specified. (e.g., if 'target' specifies
-     * only an arch, only the arch field of 'this' will be changed, leaving
-     * the other fields untouched). Any features specified in 'target'
-     * are added to 'this', whether or not originally present.
-     *
-     * If the string contains unknown tokens, or multiple tokens of the
-     * same category (e.g. multiple arch values), return false
-     * (possibly leaving 'this' munged). (Multiple feature specifications
-     * will not cause a failure.)
-     *
-     * If 'target' contains "host" as the first token, it replaces the entire
-     * contents of 'this' with get_host_target(), then proceeds to parse the
-     * remaining tokens (allowing for things like "host-opencl" to mean
-     * "host configuration, but with opencl added").
-     *
-     * Note that unlike parse_from_string(), this will never print to cerr or
-     * assert in the event of a parse failure. Note also that an empty target
-     * string is essentially a no-op, leaving 'this' unaffected.
-     */
-    EXPORT bool merge_string(const std::string &target);
-
-    /**
-     * Like merge_string(), but reset the contents of 'this' first.
-     */
-    EXPORT bool from_string(const std::string &target) {
-        *this = Target();
-        return merge_string(target);
-    }
-
     /** Given a data type, return an estimate of the "natural" vector size
      * for that data type when compiling for this Target. */
     int natural_vector_size(Halide::Type t) const {
-        user_assert(os != OSUnknown && arch != ArchUnknown && bits != 0) 
+        user_assert(os != OSUnknown && arch != ArchUnknown && bits != 0)
             << "natural_vector_size cannot be used on a Target with Unknown values.\n";
 
-        const bool is_avx2 = has_feature(Halide::Target::AVX2);
-        const bool is_avx = has_feature(Halide::Target::AVX) && !is_avx2;
         const bool is_integer = t.is_int() || t.is_uint();
-
-        // AVX has 256-bit SIMD registers, other existing targets have 128-bit ones.
-        // However, AVX has a very limited complement of integer instructions;
-        // restricting us to SSE4.1 size for integer operations produces much
-        // better performance. (AVX2 does have good integer operations for 256-bit
-        // registers.)
-        const int vector_byte_size = (is_avx2 || (is_avx && !is_integer)) ? 32 : 16;
         const int data_size = t.bytes();
-        return vector_byte_size / data_size;
+
+        if (arch == Target::Hexagon) {
+            if (is_integer) {
+                // HVX is either 64 or 128 *byte* vector size.
+                if (has_feature(Halide::Target::HVX_128)) {
+                    return 128 / data_size;
+                } else if (has_feature(Halide::Target::HVX_64)) {
+                    return 64 / data_size;
+                } else {
+                    user_error << "Target uses hexagon arch without hvx_128 or hvx_64 set.\n";
+                    return 0;
+                }
+            } else {
+                // HVX does not have vector float instructions.
+                return 1;
+            }
+        } else if (arch == Target::X86) {
+            if (is_integer && (has_feature(Halide::Target::AVX512_Skylake) ||
+                               has_feature(Halide::Target::AVX512_Cannonlake))) {
+                // AVX512BW exists on Skylake and Cannonlake
+                return 64 / data_size;
+            } else if (t.is_float() && (has_feature(Halide::Target::AVX512) ||
+                                        has_feature(Halide::Target::AVX512_KNL) ||
+                                        has_feature(Halide::Target::AVX512_Skylake) ||
+                                        has_feature(Halide::Target::AVX512_Cannonlake))) {
+                // AVX512F is on all AVX512 architectures
+                return 64 / data_size;
+            } else if (has_feature(Halide::Target::AVX2)) {
+                // AVX2 uses 256-bit vectors for everything.
+                return 32 / data_size;
+            } else if (!is_integer && has_feature(Halide::Target::AVX)) {
+                // AVX 1 has 256-bit vectors for float, but not for
+                // integer instructions.
+                return 32 / data_size;
+            } else {
+                // SSE was all 128-bit. We ignore MMX.
+                return 16 / data_size;
+            }
+        } else {
+            // Assume 128-bit vectors on other targets.
+            return 16 / data_size;
+        }
     }
 
     /** Given a data type, return an estimate of the "natural" vector size
@@ -247,6 +273,17 @@ struct Target {
     template <typename data_t>
     int natural_vector_size() const {
         return natural_vector_size(type_of<data_t>());
+    }
+
+    /** Return the maximum buffer size in bytes supported on this
+     * Target. This is 2^31 - 1 except when the LargeBuffers feature
+     * is enabled, which expands the maximum to 2^63 - 1. */
+    int64_t maximum_buffer_size() const {
+        if (bits == 64 && has_feature(LargeBuffers)) {
+            return (((uint64_t)1) << 63) - 1;
+        } else {
+            return (((uint64_t)1) << 31) - 1;
+        }
     }
 
     /** Was libHalide compiled with support for this target? */
@@ -270,15 +307,6 @@ EXPORT Target get_target_from_environment();
  * and OS of the target do not match the host target, so this is only
  * useful for controlling the feature set. */
 EXPORT Target get_jit_target_from_environment();
-
-/** Given a string of the form used in HL_TARGET (e.g. "x86-64-avx"),
- * return the Target it specifies. Note that this always starts with
- * the result of get_host_target(), replacing only the parts found in the
- * target string, so if you omit (say) an OS specification, the host OS
- * will be used instead. An empty string is exactly equivalent to get_host_target().
- */
-EXPORT Target parse_target_string(const std::string &target);
-
 
 /** Get the Target feature corresponding to a DeviceAPI. For device
  * apis that do not correspond to any single target feature, returns

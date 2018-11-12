@@ -52,12 +52,16 @@ Type map_type(const Type &type) {
 }
 }
 
-  string CodeGen_OpenGLCompute_Dev::CodeGen_OpenGLCompute_C::print_type(Type type, AppendSpaceIfNeeded) {
+string CodeGen_OpenGLCompute_Dev::CodeGen_OpenGLCompute_C::print_type(Type type, AppendSpaceIfNeeded space) {
     Type mapped_type = map_type(type);
     if (mapped_type.is_uint() && !mapped_type.is_bool()) {
-        return mapped_type.is_scalar() ? "uint": "uvec"  + std::to_string(mapped_type.lanes());
+        string s = mapped_type.is_scalar() ? "uint": "uvec"  + std::to_string(mapped_type.lanes());
+        if (space == AppendSpace) {
+            s += " ";
+        }
+        return s;
     } else {
-        return CodeGen_GLSLBase::print_type(type);
+        return CodeGen_GLSLBase::print_type(type, space);
     }
 }
 
@@ -118,7 +122,9 @@ void CodeGen_OpenGLCompute_Dev::CodeGen_OpenGLCompute_C::visit(const Call *op) {
 
 void CodeGen_OpenGLCompute_Dev::CodeGen_OpenGLCompute_C::visit(const For *loop) {
     if (is_gpu_var(loop->name)) {
-        internal_assert(loop->for_type == ForType::Parallel) << "kernel loop must be parallel\n";
+        internal_assert((loop->for_type == ForType::GPUBlock) ||
+                        (loop->for_type == ForType::GPUThread))
+            << "kernel loop must be either gpu block or gpu thread\n";
         internal_assert(is_zero(loop->min));
 
         debug(4) << "loop extent is " << loop->extent << "\n";
@@ -175,18 +181,9 @@ void CodeGen_OpenGLCompute_Dev::CodeGen_OpenGLCompute_C::visit(const Broadcast *
 }
 
 void CodeGen_OpenGLCompute_Dev::CodeGen_OpenGLCompute_C::visit(const Load *op) {
-    string id_index;
-    const Ramp *ramp = op->index.as<Ramp>();
-    if (ramp) {
-        const IntImm *stride = ramp ? ramp->stride.as<IntImm>() : nullptr;
-        user_assert(stride && stride->value == 1 && ramp->lanes == 4) <<
-            "Only trivial packed 4x vectors(stride==1, lanes==4) are supported by OpenGLCompute.";
-
-        // Buffer type is 4-elements wide, that's why we divide by ramp->lanes.
-        id_index = print_expr(Div::make(ramp->base, ramp->lanes));
-    } else {
-        id_index = print_expr(op->index);
-    }
+    // TODO: support vectors
+    internal_assert(op->type.is_scalar());
+    string id_index = print_expr(op->index);
 
     ostringstream oss;
     oss << print_name(op->name);
@@ -198,21 +195,9 @@ void CodeGen_OpenGLCompute_Dev::CodeGen_OpenGLCompute_C::visit(const Load *op) {
 }
 
 void CodeGen_OpenGLCompute_Dev::CodeGen_OpenGLCompute_C::visit(const Store *op) {
-    string id_index;
-    const Ramp *ramp = op->index.as<Ramp>();
-    if (ramp) {
-        const IntImm *stride = ramp ? ramp->stride.as<IntImm>() : nullptr;
-        user_assert(stride && stride->value == 1 && ramp->lanes == 4)
-            << "Only trivial packed 4x vectors(stride==1, lanes==4) are supported by OpenGLCompute."
-            << " Got integer stride "
-            << (stride ? std::to_string(stride->value): "undefined")
-            << " and lanes " << ramp->lanes << " instead.";
-
-        // Buffer type is 4-elements wide, that's why we divide by ramp->lanes.
-        id_index = print_expr(Div::make(ramp->base, ramp->lanes));
-    } else {
-        id_index = print_expr(op->index);
-    }
+    // TODO: support vectors
+    internal_assert(op->value.type().is_scalar());
+    string id_index = print_expr(op->index);
 
     string id_value = print_expr(op->value);
 
@@ -376,6 +361,10 @@ void CodeGen_OpenGLCompute_Dev::CodeGen_OpenGLCompute_C::visit(const Evaluate *o
 void CodeGen_OpenGLCompute_Dev::CodeGen_OpenGLCompute_C::visit(const IntImm *op) {
     // GL seems to interpret some large int immediates as uints.
     id = "int(" + std::to_string(op->value) + ")";
+}
+
+void CodeGen_OpenGLCompute_Dev::CodeGen_OpenGLCompute_C::visit(const UIntImm *op) {
+    id = "uint(" + std::to_string(op->value) + ")";
 }
 
 vector<char> CodeGen_OpenGLCompute_Dev::compile_to_src() {
